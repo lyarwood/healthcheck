@@ -144,15 +144,16 @@ var rootCmd = &cobra.Command{
 						fmt.Println(testcase.Name)
 						continue
 					}
-					testcase.URL = failureURL
-					failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
-					if !countFailures {
-						fmt.Println(testcase.Name)
-						if displayFailures {
-							fmt.Printf("%s\n", testcase.Failure)
-						}
-						fmt.Printf("%s\n\n", failureURL)
+					if countFailures {
+						testcase.URL = failureURL
+						failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
+						continue
 					}
+					fmt.Println(testcase.Name)
+					if displayFailures {
+						fmt.Printf("%s\n", testcase.Failure)
+					}
+					fmt.Printf("%s (%s)\n\n", failureURL, testcase.Time)
 				}
 			}
 		}
@@ -172,7 +173,7 @@ var rootCmd = &cobra.Command{
 				if displayFailures {
 					fmt.Printf("\t%s\n\n", *test.Failure)
 				}
-				fmt.Printf("\t%s\n\n", test.URL)
+				fmt.Printf("\t%s %s\n\n", test.URL, test.Time)
 			}
 			fmt.Println("")
 		}
