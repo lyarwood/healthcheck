@@ -69,10 +69,24 @@ var (
 
 const healthURL = "https://kubevirt.io/ci-health/output/kubevirt/kubevirt/results.json"
 
+var jobRegexAliases = map[string]string{
+	"main":    "sig-[a-zA-Z0-9_-]+$",
+	"1.6":     "release-1.6$",
+	"1.5":     "release-1.5$",
+	"1.4":     "release-1.4$",
+	"compute": "sig-compute$|sig-compute-serial$|sig-compute-migrations$|sig-operator$",
+	"network": "sig-network$",
+	"storage": "sig-storage$",
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "",
 	Short: "Parse KubeVirt CI health data and report failed tests",
 	RunE: func(cmd *cobra.Command, args []string) error {
+
+		if _, ok := jobRegexAliases[jobRegex]; ok {
+			jobRegex = jobRegexAliases[jobRegex]
+		}
 
 		jobRegex, err := regexp.Compile(jobRegex)
 		if err != nil {
@@ -165,7 +179,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&jobRegex, "job", "j", "sig-compute$", "job name regex")
+	rootCmd.Flags().StringVarP(&jobRegex, "job", "j", "main", "job name regex")
 	rootCmd.Flags().StringVarP(&testRegex, "test", "t", "", "test name regex")
 	rootCmd.Flags().BoolVarP(&countFailures, "count", "c", false, "Count specific test failures based on the test-name-regex positional argument")
 	rootCmd.Flags().BoolVarP(&displayOnlyURLs, "url", "u", false, "display only failed job URLs")
