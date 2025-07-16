@@ -33,11 +33,6 @@ type Job struct {
 	FailureURLs  []string `json:"FailureURLs"`
 }
 
-type Testsuites struct {
-	XMLName   xml.Name    `xml:"testsuites"`
-	Testsuite []Testsuite `xml:"testsuite"`
-}
-
 type Testsuite struct {
 	XMLName  xml.Name   `xml:"testsuite"`
 	Failures string     `xml:"failures,attr"`
