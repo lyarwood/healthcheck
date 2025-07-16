@@ -110,8 +110,7 @@ var rootCmd = &cobra.Command{
 				continue
 			}
 			for _, failureURL := range job.FailureURLs {
-				junitURL := constructJunitURL(failureURL)
-				testsuite, err := fetchJunit(junitURL)
+				testsuite, err := fetchTestSuite(failureURL)
 				if err != nil {
 					return err
 				}
@@ -144,18 +143,20 @@ var rootCmd = &cobra.Command{
 						fmt.Println(testcase.Name)
 						continue
 					}
-					testcase.URL = failureURL
-					failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
-					if !countFailures {
-						fmt.Println(testcase.Name)
-						if displayFailures {
-							fmt.Printf("%s\n", testcase.Failure)
-						}
-						fmt.Printf("%s\n\n", failureURL)
+					if countFailures {
+						testcase.URL = failureURL
+						failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
+						continue
 					}
+					fmt.Println(testcase.Name)
+					if displayFailures {
+						fmt.Printf("%s\n\n", testcase.Failure)
+					}
+					fmt.Printf("%s\n\n", failureURL)
 				}
 			}
 		}
+
 		if !countFailures {
 			return nil
 		}
@@ -189,6 +190,13 @@ func init() {
 	rootCmd.Flags().BoolVarP(&displayFailures, "failures", "f", false, "print any captured failure context")
 }
 
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func fetchResults(url string) (*Results, error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -219,7 +227,8 @@ func constructJunitURL(originalURL string) string {
 	return junitURL
 }
 
-func fetchJunit(url string) (*Testsuite, error) {
+func fetchTestSuite(failureURL string) (*Testsuite, error) {
+	url := constructJunitURL(failureURL)
 	client := &http.Client{
 		Timeout: 60 * time.Second, // Increased timeout to 60 seconds
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -262,11 +271,4 @@ func fetchJunit(url string) (*Testsuite, error) {
 	}
 
 	return nil, fmt.Errorf("failed to unmarshal junit.functest.xml as <testsuites> or <testsuite>")
-}
-
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
 }
