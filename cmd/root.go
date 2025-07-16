@@ -106,6 +106,20 @@ var rootCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
+				// If we don't have a testsuite just print the URL or job name
+				if testsuite == nil {
+					if displayOnlyURLs {
+						fmt.Println(failureURL)
+						continue
+					}
+					if displayOnlyTestNames {
+						fmt.Printf("%s (no junit file to parse)\n", job.JobName)
+						continue
+					}
+					fmt.Printf("%s (no junit file to parse)\n", job.JobName)
+					fmt.Printf("%s\n\n", failureURL)
+					continue
+				}
 				for _, testcase := range testsuite.Testcase {
 					if testcase.Failure == nil {
 						continue
@@ -128,7 +142,7 @@ var rootCmd = &cobra.Command{
 						if displayFailures {
 							fmt.Printf("%s\n", testcase.Failure)
 						}
-						fmt.Println(failureURL)
+						fmt.Printf("%s\n\n", failureURL)
 					}
 				}
 			}
@@ -213,17 +227,22 @@ func fetchJunit(url string) (*Testsuite, error) {
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch junit.functest.xml: %w", err)
+		return nil, fmt.Errorf("failed to fetch %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
+	// Ignore missing junit files as it suggests an issue with the job
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch junit.functest.xml: status code %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to fetch %s: status code %d", url, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read junit.functest.xml body: %w", err)
+		return nil, fmt.Errorf("failed to read %s body: %w", url, err)
 	}
 
 	var testsuite Testsuite
