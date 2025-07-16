@@ -156,23 +156,25 @@ var rootCmd = &cobra.Command{
 				}
 			}
 		}
-		if countFailures {
-			failedTestsKeys := slices.Sorted(maps.Keys(failedTests))
-			slices.SortFunc(failedTestsKeys, func(a, b string) int {
-				return cmp.Compare(len(failedTests[a]), len(failedTests[b]))
-			})
-			slices.Reverse(failedTestsKeys)
+		if !countFailures {
+			return nil
+		}
 
-			for _, name := range failedTestsKeys {
-				fmt.Printf("%d\t%s\n\n", len(failedTests[name]), name)
-				for _, test := range failedTests[name] {
-					if displayFailures {
-						fmt.Printf("\t%s\n", *test.Failure)
-					}
-					fmt.Printf("\t%s\n\n", test.URL)
+		failedTestsKeys := slices.Sorted(maps.Keys(failedTests))
+		slices.SortFunc(failedTestsKeys, func(a, b string) int {
+			return cmp.Compare(len(failedTests[a]), len(failedTests[b]))
+		})
+		slices.Reverse(failedTestsKeys)
+
+		for _, name := range failedTestsKeys {
+			fmt.Printf("%d\t%s\n\n", len(failedTests[name]), name)
+			for _, test := range failedTests[name] {
+				if displayFailures {
+					fmt.Printf("\t%s\n\n", *test.Failure)
 				}
-				fmt.Println("")
+				fmt.Printf("\t%s\n\n", test.URL)
 			}
+			fmt.Println("")
 		}
 		return nil
 	},
