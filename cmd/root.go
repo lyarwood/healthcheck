@@ -181,12 +181,12 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&jobRegex, "job", "j", "main", "job name regex")
-	rootCmd.Flags().StringVarP(&testRegex, "test", "t", "", "test name regex")
-	rootCmd.Flags().BoolVarP(&countFailures, "count", "c", false, "Count specific test failures based on the test-name-regex positional argument")
-	rootCmd.Flags().BoolVarP(&displayOnlyURLs, "url", "u", false, "display only failed job URLs")
-	rootCmd.Flags().BoolVarP(&displayOnlyTestNames, "name", "n", false, "display only failed test names")
-	rootCmd.Flags().BoolVarP(&displayFailures, "failures", "f", false, "print test failures")
+	rootCmd.Flags().StringVarP(&jobRegex, "job", "j", "main", "Job name regex")
+	rootCmd.Flags().StringVarP(&testRegex, "test", "t", "", "Test name regex")
+	rootCmd.Flags().BoolVarP(&countFailures, "count", "c", false, "Count specific test failures")
+	rootCmd.Flags().BoolVarP(&displayOnlyURLs, "url", "u", false, "Display only failed job URLs")
+	rootCmd.Flags().BoolVarP(&displayOnlyTestNames, "name", "n", false, "Display only failed test names")
+	rootCmd.Flags().BoolVarP(&displayFailures, "failures", "f", false, "print any captured failure context")
 }
 
 func fetchResults(url string) (*Results, error) {
