@@ -64,11 +64,12 @@ type Failure struct {
 }
 
 var (
-	jobRegex        string
-	testRegex       string
-	countFailures   bool
-	displayURLs     bool
-	displayFailures bool
+	jobRegex             string
+	testRegex            string
+	countFailures        bool
+	displayOnlyURLs      bool
+	displayOnlyTestNames bool
+	displayFailures      bool
 )
 
 const healthURL = "https://kubevirt.io/ci-health/output/kubevirt/kubevirt/results.json"
@@ -106,23 +107,28 @@ var rootCmd = &cobra.Command{
 					return err
 				}
 				for _, testcase := range testsuite.Testcase {
+					if testcase.Failure == nil {
+						continue
+					}
 					if !testRegex.MatchString(testcase.Name) {
 						continue
 					}
-					if testcase.Failure != nil {
-						if displayURLs {
-							fmt.Println(failureURL)
-							continue
+					if displayOnlyURLs {
+						fmt.Println(failureURL)
+						continue
+					}
+					if displayOnlyTestNames {
+						fmt.Println(testcase.Name)
+						continue
+					}
+					testcase.URL = failureURL
+					failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
+					if !countFailures {
+						fmt.Println(testcase.Name)
+						if displayFailures {
+							fmt.Printf("%s\n", testcase.Failure)
 						}
-						testcase.URL = failureURL
-						failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
-						if !countFailures {
-							fmt.Printf("%s\n", testcase.Name)
-							if displayFailures {
-								fmt.Println(*testcase.Failure)
-							}
-							fmt.Println(failureURL)
-						}
+						fmt.Println(failureURL)
 					}
 				}
 			}
@@ -153,7 +159,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&jobRegex, "job", "j", "sig-compute$", "job name regex")
 	rootCmd.Flags().StringVarP(&testRegex, "test", "t", "", "test name regex")
 	rootCmd.Flags().BoolVarP(&countFailures, "count", "c", false, "Count specific test failures based on the test-name-regex positional argument")
-	rootCmd.Flags().BoolVarP(&displayURLs, "url", "u", false, "display only failed job URLs")
+	rootCmd.Flags().BoolVarP(&displayOnlyURLs, "url", "u", false, "display only failed job URLs")
+	rootCmd.Flags().BoolVarP(&displayOnlyTestNames, "name", "n", false, "display only failed test names")
 	rootCmd.Flags().BoolVarP(&displayFailures, "failures", "f", false, "print test failures")
 }
 

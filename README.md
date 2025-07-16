@@ -7,6 +7,22 @@ A basic command line tool to help summarise CI failures as reported by the [kube
 # Open a tab for each sig-compute$ failure 
 $ healthcheck -u -j "sig-compute$" | xargs google-chrome
 
+# List only failing test names and count with external tools
+$ healthcheck -n | sort | uniq -c | sort -rn
+      3 [sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
+      2 [virtctl] [crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute] usbredir Should work several times
+      1 [sig-compute]VirtualMachinePool pool should scale to five, to six and then to zero replicas
+      1 [sig-compute] [rfe_id:1177][crit:medium] VirtualMachine with paused vmi [test_id:3229]should gracefully handle being started again
+      1 [rfe_id:899][crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute]Config With a DownwardAPI defined [test_id:790]Should be the namespace and token the same for a pod and vmi
+      1 [rfe_id:588][crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute]ContainerDisk [rfe_id:273][crit:medium][vendor:cnv-qe@redhat.com][level:component]Starting and stopping the same VirtualMachine with ephemeral registry disk [test_id:1463] should success multiple times
+      1 [rfe_id:273][crit:high][vendor:cnv-qe@redhat.com][level:component][sig-compute]VMIlifecycle Softreboot a VirtualMachineInstance soft reboot vmi with ACPI feature enabled should succeed
+      1 [rfe_id:273][crit:high][vendor:cnv-qe@redhat.com][level:component][sig-compute]VMIlifecycle [rfe_id:273][crit:high][vendor:cnv-qe@redhat.com][level:component]Creating a VirtualMachineInstance with user-data without k8s secret [test_id:1630]should log warning and proceed once the secret is there
+      1 [rfe_id:1177][crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute]VirtualMachine A valid VirtualMachine given [test_id:1527]should not update the VirtualMachineInstance spec if Running
+      1 [rfe_id:1177][crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute]VirtualMachine A valid VirtualMachine given [test_id:1526]should start and stop VirtualMachineInstance multiple times
+      1 [rfe_id:1177][crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute]VirtualMachine A valid VirtualMachine given [test_id:1523]should recreate VirtualMachineInstance if it gets deleted
+      1 [rfe_id:1177][crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute]VirtualMachine A valid VirtualMachine given should not update the vmi generation annotation when the template changes
+      1 [rfe_id:1177][crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute]VirtualMachine A valid VirtualMachine given should not remove a succeeded VMI [test_id:2190] with RunStrategyManual
+
 # List a sorted list of job failures
 $ healthcheck -c -j "sig-compute$"
 3 [sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
