@@ -65,6 +65,7 @@ var (
 	displayOnlyURLs      bool
 	displayOnlyTestNames bool
 	displayFailures      bool
+	groupByLaneRun       bool
 )
 
 const healthURL = "https://kubevirt.io/ci-health/output/kubevirt/kubevirt/results.json"
@@ -104,6 +105,7 @@ var rootCmd = &cobra.Command{
 		}
 
 		failedTests := make(map[string][]Testcase)
+		laneRunFailures := make(map[string][]Testcase)
 
 		for _, job := range results.Data.SIGRetests.FailedJobLeaderBoard {
 			if !jobRegex.MatchString(job.JobName) {
@@ -122,6 +124,14 @@ var rootCmd = &cobra.Command{
 					}
 					if displayOnlyTestNames {
 						fmt.Printf("%s (no junit file to parse)\n", job.JobName)
+						continue
+					}
+					if groupByLaneRun {
+						laneRunUUID := extractLaneRunUUID(failureURL)
+						if laneRunUUID != "" {
+							placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL}
+							laneRunFailures[laneRunUUID] = append(laneRunFailures[laneRunUUID], placeholder)
+						}
 						continue
 					}
 					fmt.Printf("%s (no junit file to parse)\n", job.JobName)
@@ -143,8 +153,15 @@ var rootCmd = &cobra.Command{
 						fmt.Println(testcase.Name)
 						continue
 					}
+					testcase.URL = failureURL
+					if groupByLaneRun {
+						laneRunUUID := extractLaneRunUUID(failureURL)
+						if laneRunUUID != "" {
+							laneRunFailures[laneRunUUID] = append(laneRunFailures[laneRunUUID], testcase)
+						}
+						continue
+					}
 					if countFailures {
-						testcase.URL = failureURL
 						failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
 						continue
 					}
@@ -155,6 +172,27 @@ var rootCmd = &cobra.Command{
 					fmt.Printf("%s\n\n", failureURL)
 				}
 			}
+		}
+
+		if groupByLaneRun {
+			laneRunKeys := slices.Sorted(maps.Keys(laneRunFailures))
+			slices.SortFunc(laneRunKeys, func(a, b string) int {
+				return cmp.Compare(len(laneRunFailures[a]), len(laneRunFailures[b]))
+			})
+			slices.Reverse(laneRunKeys)
+
+			for _, laneRunUUID := range laneRunKeys {
+				fmt.Printf("Lane Run %s (%d failures)\n\n", laneRunUUID, len(laneRunFailures[laneRunUUID]))
+				for _, test := range laneRunFailures[laneRunUUID] {
+					fmt.Printf("\t%s\n", test.Name)
+					if displayFailures && test.Failure != nil {
+						fmt.Printf("\t%s\n\n", *test.Failure)
+					}
+					fmt.Printf("\t%s\n\n", test.URL)
+				}
+				fmt.Println("")
+			}
+			return nil
 		}
 
 		if !countFailures {
@@ -188,6 +226,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&displayOnlyURLs, "url", "u", false, "Display only failed job URLs")
 	rootCmd.Flags().BoolVarP(&displayOnlyTestNames, "name", "n", false, "Display only failed test names")
 	rootCmd.Flags().BoolVarP(&displayFailures, "failures", "f", false, "print any captured failure context")
+	rootCmd.Flags().BoolVarP(&groupByLaneRun, "lane-run", "l", false, "Group failures by lane run UUID")
 }
 
 func Execute() {
@@ -225,6 +264,14 @@ func constructJunitURL(originalURL string) string {
 	}
 	junitURL += "artifacts/junit.functest.xml"
 	return junitURL
+}
+
+func extractLaneRunUUID(failureURL string) string {
+	parts := strings.Split(failureURL, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return ""
 }
 
 func fetchTestSuite(failureURL string) (*Testsuite, error) {
