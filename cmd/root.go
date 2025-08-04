@@ -5,6 +5,8 @@ import (
 	"os"
 	"regexp"
 
+	"healthcheck/pkg/healthcheck"
+
 	"github.com/spf13/cobra"
 )
 
@@ -24,8 +26,8 @@ var rootCmd = &cobra.Command{
 	RunE: func(_ *cobra.Command, _ []string) error {
 
 		// Resolve job regex aliases
-		if _, ok := jobRegexAliases[jobRegex]; ok {
-			jobRegex = jobRegexAliases[jobRegex]
+		if _, ok := healthcheck.JobRegexAliases[jobRegex]; ok {
+			jobRegex = healthcheck.JobRegexAliases[jobRegex]
 		}
 
 		// Compile regexes
@@ -40,13 +42,13 @@ var rootCmd = &cobra.Command{
 		}
 
 		// Fetch CI health data
-		results, err := fetchResults(healthURL)
+		results, err := healthcheck.FetchResults(healthcheck.HealthURL)
 		if err != nil {
 			return err
 		}
 
 		// Configure processor
-		config := ProcessorConfig{
+		config := healthcheck.ProcessorConfig{
 			JobRegex:             jobRegexCompiled,
 			TestRegex:            testRegexCompiled,
 			DisplayOnlyURLs:      displayOnlyURLs,
@@ -57,19 +59,19 @@ var rootCmd = &cobra.Command{
 		}
 
 		// Process failures
-		result, err := processFailures(results, config)
+		result, err := healthcheck.ProcessFailures(results, config)
 		if err != nil {
 			return err
 		}
 
 		// Output results
 		if groupByLaneRun {
-			formatLaneRunOutput(result.LaneRunFailures, displayFailures)
+			healthcheck.FormatLaneRunOutput(result.LaneRunFailures, displayFailures)
 			return nil
 		}
 
 		if countFailures {
-			formatCountedOutput(result.FailedTests, displayFailures)
+			healthcheck.FormatCountedOutput(result.FailedTests, displayFailures)
 		}
 		return nil
 	},
