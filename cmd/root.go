@@ -1,62 +1,13 @@
 package cmd
 
 import (
-	"cmp"
-	"encoding/json"
-	"encoding/xml"
 	"fmt"
-	"io"
-	"maps"
-	"net"
-	"net/http"
 	"os"
 	"regexp"
-	"slices"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
 
-type Results struct {
-	Data struct {
-		SIGRetests struct {
-			FailedJobLeaderBoard []Job `json:"FailedJobLeaderBoard"`
-		} `json:"SIGRetests"`
-	} `json:"Data"`
-}
-
-type Job struct {
-	JobName      string   `json:"JobName"`
-	FailureCount int      `json:"FailureCount"`
-	SuccessCount int      `json:"SuccessCount"`
-	FailureURLs  []string `json:"FailureURLs"`
-}
-
-type Testsuite struct {
-	XMLName  xml.Name   `xml:"testsuite"`
-	Failures string     `xml:"failures,attr"`
-	Name     string     `xml:"name,attr"`
-	Tests    string     `xml:"tests,attr"`
-	Time     string     `xml:"time,attr"`
-	Testcase []Testcase `xml:"testcase"`
-}
-
-type Testcase struct {
-	XMLName   xml.Name `xml:"testcase"`
-	Classname string   `xml:"classname,attr"`
-	Name      string   `xml:"name,attr"`
-	Time      string   `xml:"time,attr"`
-	Failure   *Failure `xml:"failure,omitempty"`
-	URL       string   `xml:"url,omitempty"`
-}
-
-type Failure struct {
-	XMLName xml.Name `xml:"failure"`
-	Message string   `xml:"message,attr"`
-	Type    string   `xml:"type,attr"`
-	Value   string   `xml:",chardata"`
-}
 
 var (
 	jobRegex             string
@@ -68,152 +19,59 @@ var (
 	groupByLaneRun       bool
 )
 
-const healthURL = "https://kubevirt.io/ci-health/output/kubevirt/kubevirt/results.json"
-
-var jobRegexAliases = map[string]string{
-	"main":    "sig-[a-zA-Z0-9_-]+$",
-	"1.6":     "release-1.6$",
-	"1.5":     "release-1.5$",
-	"1.4":     "release-1.4$",
-	"compute": "sig-compute$|sig-compute-serial$|sig-compute-migrations$|sig-operator$",
-	"network": "sig-network$",
-	"storage": "sig-storage$",
-}
 
 var rootCmd = &cobra.Command{
 	Use:   "",
 	Short: "Parse KubeVirt CI health data and report failed tests",
 	RunE: func(cmd *cobra.Command, args []string) error {
 
+		// Resolve job regex aliases
 		if _, ok := jobRegexAliases[jobRegex]; ok {
 			jobRegex = jobRegexAliases[jobRegex]
 		}
 
-		jobRegex, err := regexp.Compile(jobRegex)
+		// Compile regexes
+		jobRegexCompiled, err := regexp.Compile(jobRegex)
 		if err != nil {
 			return fmt.Errorf("invalid job name regex provided: %w", err)
 		}
 
-		testRegex, err := regexp.Compile(testRegex)
+		testRegexCompiled, err := regexp.Compile(testRegex)
 		if err != nil {
 			return fmt.Errorf("invalid test name regex provided: %w", err)
 		}
 
+		// Fetch CI health data
 		results, err := fetchResults(healthURL)
 		if err != nil {
 			return err
 		}
 
-		failedTests := make(map[string][]Testcase)
-		laneRunFailures := make(map[string][]Testcase)
-
-		for _, job := range results.Data.SIGRetests.FailedJobLeaderBoard {
-			if !jobRegex.MatchString(job.JobName) {
-				continue
-			}
-			for _, failureURL := range job.FailureURLs {
-				testsuite, err := fetchTestSuite(failureURL)
-				if err != nil {
-					return err
-				}
-				// If we don't have a testsuite just print the URL or job name
-				if testsuite == nil {
-					if displayOnlyURLs {
-						fmt.Println(failureURL)
-						continue
-					}
-					if displayOnlyTestNames {
-						fmt.Printf("%s (no junit file to parse)\n", job.JobName)
-						continue
-					}
-					if groupByLaneRun {
-						laneRunUUID := extractLaneRunUUID(failureURL)
-						if laneRunUUID != "" {
-							placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL}
-							laneRunFailures[laneRunUUID] = append(laneRunFailures[laneRunUUID], placeholder)
-						}
-						continue
-					}
-					fmt.Printf("%s (no junit file to parse)\n", job.JobName)
-					fmt.Printf("%s\n\n", failureURL)
-					continue
-				}
-				for _, testcase := range testsuite.Testcase {
-					if testcase.Failure == nil {
-						continue
-					}
-					if !testRegex.MatchString(testcase.Name) {
-						continue
-					}
-					if displayOnlyURLs {
-						fmt.Println(failureURL)
-						continue
-					}
-					if displayOnlyTestNames {
-						fmt.Println(testcase.Name)
-						continue
-					}
-					testcase.URL = failureURL
-					if groupByLaneRun {
-						laneRunUUID := extractLaneRunUUID(failureURL)
-						if laneRunUUID != "" {
-							laneRunFailures[laneRunUUID] = append(laneRunFailures[laneRunUUID], testcase)
-						}
-						continue
-					}
-					if countFailures {
-						failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
-						continue
-					}
-					fmt.Println(testcase.Name)
-					if displayFailures {
-						fmt.Printf("%s\n\n", testcase.Failure)
-					}
-					fmt.Printf("%s\n\n", failureURL)
-				}
-			}
+		// Configure processor
+		config := ProcessorConfig{
+			JobRegex:             jobRegexCompiled,
+			TestRegex:            testRegexCompiled,
+			DisplayOnlyURLs:      displayOnlyURLs,
+			DisplayOnlyTestNames: displayOnlyTestNames,
+			DisplayFailures:      displayFailures,
+			CountFailures:        countFailures,
+			GroupByLaneRun:       groupByLaneRun,
 		}
 
+		// Process failures
+		result, err := processFailures(results, config)
+		if err != nil {
+			return err
+		}
+
+		// Output results
 		if groupByLaneRun {
-			laneRunKeys := slices.Sorted(maps.Keys(laneRunFailures))
-			slices.SortFunc(laneRunKeys, func(a, b string) int {
-				return cmp.Compare(len(laneRunFailures[a]), len(laneRunFailures[b]))
-			})
-			slices.Reverse(laneRunKeys)
-
-			for _, laneRunUUID := range laneRunKeys {
-				fmt.Printf("Lane Run %s (%d failures)\n\n", laneRunUUID, len(laneRunFailures[laneRunUUID]))
-				for _, test := range laneRunFailures[laneRunUUID] {
-					fmt.Printf("\t%s\n", test.Name)
-					if displayFailures && test.Failure != nil {
-						fmt.Printf("\t%s\n\n", *test.Failure)
-					}
-					fmt.Printf("\t%s\n\n", test.URL)
-				}
-				fmt.Println("")
-			}
+			formatLaneRunOutput(result.LaneRunFailures, displayFailures)
 			return nil
 		}
 
-		if !countFailures {
-			return nil
-		}
-
-		failedTestsKeys := slices.Sorted(maps.Keys(failedTests))
-		slices.SortFunc(failedTestsKeys, func(a, b string) int {
-			return cmp.Compare(len(failedTests[a]), len(failedTests[b]))
-		})
-		slices.Reverse(failedTestsKeys)
-
-		for _, name := range failedTestsKeys {
-			fmt.Printf("%d\t%s\n\n", len(failedTests[name]), name)
-			for _, test := range failedTests[name] {
-				if displayFailures {
-					fmt.Printf("\t%s\n\n", *test.Failure)
-				}
-				fmt.Printf("\t%s\n\n", test.URL)
-			}
-			fmt.Println("")
+		if countFailures {
+			formatCountedOutput(result.FailedTests, displayFailures)
 		}
 		return nil
 	},
@@ -236,86 +94,3 @@ func Execute() {
 	}
 }
 
-func fetchResults(url string) (*Results, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch results.json: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read results.json body: %w", err)
-	}
-
-	var results Results
-	if err := json.Unmarshal(body, &results); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal results.json: %w", err)
-	}
-
-	return &results, nil
-}
-
-// constructJunitURL builds the JUnit URL from the original prow URL
-func constructJunitURL(originalURL string) string {
-	junitURL := strings.Replace(originalURL, "prow.ci.kubevirt.io//view/gs", "gcsweb.ci.kubevirt.io/gcs", 1)
-	if !strings.HasSuffix(junitURL, "/") {
-		junitURL += "/"
-	}
-	junitURL += "artifacts/junit.functest.xml"
-	return junitURL
-}
-
-func extractLaneRunUUID(failureURL string) string {
-	parts := strings.Split(failureURL, "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return ""
-}
-
-func fetchTestSuite(failureURL string) (*Testsuite, error) {
-	url := constructJunitURL(failureURL)
-	client := &http.Client{
-		Timeout: 60 * time.Second, // Increased timeout to 60 seconds
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return nil
-		},
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   15 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:        100,
-			IdleConnTimeout:     90 * time.Second,
-			TLSHandshakeTimeout: 15 * time.Second,
-		},
-	}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	// Ignore missing junit files as it suggests an issue with the job
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch %s: status code %d", url, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read %s body: %w", url, err)
-	}
-
-	var testsuite Testsuite
-	if err := xml.Unmarshal(body, &testsuite); err == nil {
-		return &testsuite, nil
-	}
-
-	return nil, fmt.Errorf("failed to unmarshal junit.functest.xml as <testsuites> or <testsuite>")
-}
