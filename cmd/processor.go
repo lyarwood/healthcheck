@@ -40,8 +40,10 @@ func extractLaneRunUUID(failureURL string) string {
 }
 
 func processFailures(results *Results, config ProcessorConfig) (*ProcessorResult, error) {
-	failedTests := make(map[string][]Testcase)
-	laneRunFailures := make(map[string][]Testcase)
+	result := &ProcessorResult{
+		FailedTests:     make(map[string][]Testcase),
+		LaneRunFailures: make(map[string][]Testcase),
+	}
 
 	for _, job := range results.Data.SIGRetests.FailedJobLeaderBoard {
 		if !config.JobRegex.MatchString(job.JobName) {
@@ -49,77 +51,88 @@ func processFailures(results *Results, config ProcessorConfig) (*ProcessorResult
 		}
 
 		for _, failureURL := range job.FailureURLs {
-			testsuite, err := fetchTestSuite(failureURL)
-			if err != nil {
+			if err := processJobFailure(job, failureURL, config, result); err != nil {
 				return nil, err
-			}
-
-			// Handle missing testsuite
-			if testsuite == nil {
-				if config.DisplayOnlyURLs {
-					fmt.Println(failureURL)
-					continue
-				}
-				if config.DisplayOnlyTestNames {
-					fmt.Printf("%s (no junit file to parse)\n", job.JobName)
-					continue
-				}
-				if config.GroupByLaneRun {
-					laneRunUUID := extractLaneRunUUID(failureURL)
-					if laneRunUUID != "" {
-						placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL}
-						laneRunFailures[laneRunUUID] = append(laneRunFailures[laneRunUUID], placeholder)
-					}
-					continue
-				}
-				fmt.Printf("%s (no junit file to parse)\n", job.JobName)
-				fmt.Printf("%s\n\n", failureURL)
-				continue
-			}
-
-			// Process test cases
-			for _, testcase := range testsuite.Testcase {
-				if testcase.Failure == nil {
-					continue
-				}
-				if !config.TestRegex.MatchString(testcase.Name) {
-					continue
-				}
-				if config.DisplayOnlyURLs {
-					fmt.Println(failureURL)
-					continue
-				}
-				if config.DisplayOnlyTestNames {
-					fmt.Println(testcase.Name)
-					continue
-				}
-
-				testcase.URL = failureURL
-
-				if config.GroupByLaneRun {
-					laneRunUUID := extractLaneRunUUID(failureURL)
-					if laneRunUUID != "" {
-						laneRunFailures[laneRunUUID] = append(laneRunFailures[laneRunUUID], testcase)
-					}
-					continue
-				}
-				if config.CountFailures {
-					failedTests[testcase.Name] = append(failedTests[testcase.Name], testcase)
-					continue
-				}
-
-				// Default output for non-count, non-grouped mode
-				fmt.Println(testcase.Name)
-				if config.DisplayFailures {
-					fmt.Printf("%s\n\n", testcase.Failure)
-				}
-				fmt.Printf("%s\n\n", failureURL)
 			}
 		}
 	}
 
-	return &ProcessorResult{
-		FailedTests:     failedTests,
-		LaneRunFailures: laneRunFailures,
-	}, nil
+	return result, nil
+}
+
+func processJobFailure(job Job, failureURL string, config ProcessorConfig, result *ProcessorResult) error {
+	testsuite, err := fetchTestSuite(failureURL)
+	if err != nil {
+		return err
+	}
+
+	if testsuite == nil {
+		return handleMissingTestsuite(job, failureURL, config, result)
+	}
+
+	return processTestcases(testsuite, failureURL, config, result)
+}
+
+func handleMissingTestsuite(job Job, failureURL string, config ProcessorConfig, result *ProcessorResult) error {
+	if config.DisplayOnlyURLs {
+		fmt.Println(failureURL)
+		return nil
+	}
+	if config.DisplayOnlyTestNames {
+		fmt.Printf("%s (no junit file to parse)\n", job.JobName)
+		return nil
+	}
+	if config.GroupByLaneRun {
+		laneRunUUID := extractLaneRunUUID(failureURL)
+		if laneRunUUID != "" {
+			placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL}
+			result.LaneRunFailures[laneRunUUID] = append(result.LaneRunFailures[laneRunUUID], placeholder)
+		}
+		return nil
+	}
+	fmt.Printf("%s (no junit file to parse)\n", job.JobName)
+	fmt.Printf("%s\n\n", failureURL)
+	return nil
+}
+
+func processTestcases(testsuite *Testsuite, failureURL string, config ProcessorConfig, result *ProcessorResult) error {
+	for _, testcase := range testsuite.Testcase {
+		if testcase.Failure == nil || !config.TestRegex.MatchString(testcase.Name) {
+			continue
+		}
+
+		if config.DisplayOnlyURLs {
+			fmt.Println(failureURL)
+			continue
+		}
+		if config.DisplayOnlyTestNames {
+			fmt.Println(testcase.Name)
+			continue
+		}
+
+		testcase.URL = failureURL
+		processTestcase(testcase, config, result)
+	}
+	return nil
+}
+
+func processTestcase(testcase Testcase, config ProcessorConfig, result *ProcessorResult) {
+	if config.GroupByLaneRun {
+		laneRunUUID := extractLaneRunUUID(testcase.URL)
+		if laneRunUUID != "" {
+			result.LaneRunFailures[laneRunUUID] = append(result.LaneRunFailures[laneRunUUID], testcase)
+		}
+		return
+	}
+	if config.CountFailures {
+		result.FailedTests[testcase.Name] = append(result.FailedTests[testcase.Name], testcase)
+		return
+	}
+
+	// Default output for non-count, non-grouped mode
+	fmt.Println(testcase.Name)
+	if config.DisplayFailures {
+		fmt.Printf("%s\n\n", testcase.Failure)
+	}
+	fmt.Printf("%s\n\n", testcase.URL)
 }

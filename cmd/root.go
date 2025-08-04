@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
 var (
 	jobRegex             string
 	testRegex            string
@@ -19,11 +18,10 @@ var (
 	groupByLaneRun       bool
 )
 
-
 var rootCmd = &cobra.Command{
 	Use:   "",
 	Short: "Parse KubeVirt CI health data and report failed tests",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 
 		// Resolve job regex aliases
 		if _, ok := jobRegexAliases[jobRegex]; ok {
@@ -93,4 +91,3 @@ func Execute() {
 		os.Exit(1)
 	}
 }
-

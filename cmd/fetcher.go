@@ -47,7 +47,7 @@ func fetchTestSuite(failureURL string) (*Testsuite, error) {
 	url := constructJunitURL(failureURL)
 	client := &http.Client{
 		Timeout: 60 * time.Second, // Increased timeout to 60 seconds
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return nil
 		},
 		Transport: &http.Transport{
