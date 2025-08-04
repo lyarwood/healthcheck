@@ -18,6 +18,7 @@ var (
 	displayOnlyTestNames bool
 	displayFailures      bool
 	groupByLaneRun       bool
+	checkQuarantine      bool
 )
 
 var rootCmd = &cobra.Command{
@@ -56,6 +57,7 @@ var rootCmd = &cobra.Command{
 			DisplayFailures:      displayFailures,
 			CountFailures:        countFailures,
 			GroupByLaneRun:       groupByLaneRun,
+			CheckQuarantine:      checkQuarantine,
 		}
 
 		// Process failures
@@ -85,6 +87,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&displayOnlyTestNames, "name", "n", false, "Display only failed test names")
 	rootCmd.Flags().BoolVarP(&displayFailures, "failures", "f", false, "print any captured failure context")
 	rootCmd.Flags().BoolVarP(&groupByLaneRun, "lane-run", "l", false, "Group failures by lane run UUID")
+	rootCmd.Flags().BoolVarP(&checkQuarantine, "quarantine", "q", false, "Check and highlight quarantined tests")
 }
 
 func Execute() {
