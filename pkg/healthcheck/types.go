@@ -42,3 +42,27 @@ type Failure struct {
 	Type    string   `xml:"type,attr"`
 	Value   string   `xml:",chardata"`
 }
+
+type JobRun struct {
+	ID        string
+	URL       string
+	Status    string
+	Timestamp string
+	Failures  []Testcase
+}
+
+type LaneSummary struct {
+	TotalRuns     int
+	SuccessfulRuns int
+	FailedRuns    int
+	TestFailures  map[string]int
+	Runs          []JobRun
+	AllFailures   []Testcase  // All test failures across all runs
+}
+
+type LaneDisplayConfig struct {
+	CountFailures        bool
+	DisplayOnlyURLs      bool
+	DisplayOnlyTestNames bool
+	DisplayFailures      bool
+}

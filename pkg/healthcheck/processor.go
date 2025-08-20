@@ -176,3 +176,40 @@ func isTestQuarantined(testName string, quarantinedTests map[string]bool) bool {
 
 	return false
 }
+
+// AnalyzeLaneRuns processes job runs and creates a summary
+func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
+	summary := &LaneSummary{
+		TotalRuns:    len(runs),
+		TestFailures: make(map[string]int),
+		Runs:         runs,
+		AllFailures:  []Testcase{},
+	}
+
+	// Analyze each job run
+	for i := range runs {
+		run := &runs[i]
+		
+		// Fetch artifacts and analyze failures
+		if err := fetchJobArtifacts(run); err != nil {
+			// Don't fail completely if one job fails to fetch
+			continue
+		}
+
+		// Count status
+		switch run.Status {
+		case "SUCCESS":
+			summary.SuccessfulRuns++
+		case "FAILURE":
+			summary.FailedRuns++
+		}
+
+		// Count test failures and collect all failures
+		for _, failure := range run.Failures {
+			summary.TestFailures[failure.Name]++
+			summary.AllFailures = append(summary.AllFailures, failure)
+		}
+	}
+
+	return summary, nil
+}

@@ -154,3 +154,168 @@ func parseQuarantinedTests(htmlContent string) map[string]bool {
 
 	return quarantinedTests
 }
+
+// FetchJobHistory fetches recent job runs from the Prow job history page
+func FetchJobHistory(jobName string, limit int) ([]JobRun, error) {
+	historyURL := fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName)
+	
+	resp, err := http.Get(historyURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch job history: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch job history: status code %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read job history body: %w", err)
+	}
+
+	return parseJobHistory(string(body), jobName, limit)
+}
+
+// parseJobHistory extracts job run information from the Prow history HTML page
+func parseJobHistory(htmlContent, jobName string, limit int) ([]JobRun, error) {
+	var runs []JobRun
+
+	// Look for allBuilds JSON array in the JavaScript
+	re := regexp.MustCompile(`allBuilds\s*=\s*(\[.*?\]);`)
+	match := re.FindStringSubmatch(htmlContent)
+	
+	if len(match) < 2 {
+		return runs, fmt.Errorf("could not find allBuilds JSON in page content")
+	}
+
+	// Parse the JSON array
+	var buildData []map[string]interface{}
+	if err := json.Unmarshal([]byte(match[1]), &buildData); err != nil {
+		return runs, fmt.Errorf("failed to parse builds JSON: %w", err)
+	}
+
+	count := 0
+	for _, build := range buildData {
+		if count >= limit {
+			break
+		}
+
+		// Extract build information
+		buildID, ok := build["ID"].(string)
+		if !ok {
+			continue
+		}
+
+		spyglassLink, ok := build["SpyglassLink"].(string)
+		if !ok {
+			continue
+		}
+
+		// Convert SpyglassLink to prow URL format
+		runURL := spyglassLink
+		if !strings.HasPrefix(runURL, "https://") {
+			if strings.HasPrefix(runURL, "/") {
+				runURL = "https://prow.ci.kubevirt.io" + runURL
+			} else {
+				runURL = "https://prow.ci.kubevirt.io/" + runURL
+			}
+		}
+
+		// Extract timestamp if available
+		timestamp := ""
+		if started, ok := build["Started"].(string); ok {
+			timestamp = started
+		}
+
+		run := JobRun{
+			ID:        buildID,
+			URL:       runURL,
+			Timestamp: timestamp,
+		}
+
+		runs = append(runs, run)
+		count++
+	}
+
+	return runs, nil
+}
+
+// fetchJobArtifacts fetches test results from a specific job run's artifacts
+func fetchJobArtifacts(jobRun *JobRun) error {
+	// Convert prow URL to direct Google Storage URL
+	artifactsURL := strings.Replace(jobRun.URL, "prow.ci.kubevirt.io/view/gs", "storage.googleapis.com", 1)
+	if !strings.HasSuffix(artifactsURL, "/") {
+		artifactsURL += "/"
+	}
+	
+	// Try different possible junit file locations
+	junitPaths := []string{
+		"artifacts/junit/junit.unittests.xml",  // Unit tests
+		"artifacts/junit.functest.xml",         // Functional tests
+		"artifacts/junit.xml",                  // Generic
+		"artifacts/tests/junit.xml",            // Alternative location
+	}
+
+	for _, path := range junitPaths {
+		junitURL := artifactsURL + path
+		testsuite, err := fetchTestSuiteFromURL(junitURL)
+		if err == nil && testsuite != nil {
+			// Extract failed tests
+			for _, testcase := range testsuite.Testcase {
+				if testcase.Failure != nil {
+					testcase.URL = jobRun.URL
+					jobRun.Failures = append(jobRun.Failures, testcase)
+				}
+			}
+			
+			// Determine job status
+			if len(jobRun.Failures) > 0 {
+				jobRun.Status = "FAILURE"
+			} else {
+				jobRun.Status = "SUCCESS"
+			}
+			return nil
+		}
+	}
+
+	// If no junit file found, check if job failed for other reasons
+	jobRun.Status = "UNKNOWN"
+	return nil
+}
+
+// fetchTestSuiteFromURL fetches and parses a junit XML file from a specific URL
+func fetchTestSuiteFromURL(url string) (*Testsuite, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return nil
+		},
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch %s: status code %d", url, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s body: %w", url, err)
+	}
+
+	var testsuite Testsuite
+	if err := xml.Unmarshal(body, &testsuite); err == nil {
+		return &testsuite, nil
+	}
+
+	return nil, fmt.Errorf("failed to unmarshal junit XML from %s", url)
+}

@@ -63,3 +63,45 @@ func FormatCountedOutput(failedTests map[string][]Testcase, displayFailures bool
 		fmt.Println("")
 	}
 }
+
+// FormatLaneOutput displays lane analysis results in various formats
+func FormatLaneOutput(jobName string, summary *LaneSummary, config LaneDisplayConfig) {
+	// Handle URL-only output
+	if config.DisplayOnlyURLs {
+		for _, run := range summary.Runs {
+			if run.Status == "FAILURE" {
+				fmt.Println(run.URL)
+			}
+		}
+		return
+	}
+
+	// Handle test names-only output
+	if config.DisplayOnlyTestNames {
+		for _, failure := range summary.AllFailures {
+			fmt.Println(failure.Name)
+		}
+		return
+	}
+
+	// Handle count failures output (similar to merge command)
+	if config.CountFailures {
+		// Group failures by test name like merge command does
+		failedTests := make(map[string][]Testcase)
+		for _, failure := range summary.AllFailures {
+			failedTests[failure.Name] = append(failedTests[failure.Name], failure)
+		}
+		
+		FormatCountedOutput(failedTests, config.DisplayFailures)
+		return
+	}
+
+	// Default output: simple list of failures
+	for _, failure := range summary.AllFailures {
+		fmt.Println(failure.Name)
+		if config.DisplayFailures && failure.Failure != nil {
+			fmt.Printf("%s\n\n", *failure.Failure)
+		}
+		fmt.Printf("%s\n\n", failure.URL)
+	}
+}

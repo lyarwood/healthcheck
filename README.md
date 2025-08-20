@@ -2,6 +2,39 @@
 
 A basic command line tool to help summarise CI failures as reported by the [kubevirt/ci-health](https://github.com/kubevirt/ci-health) project.
 
+## Lane Analysis
+
+Analyze recent job runs for a specific lane with various output options:
+
+```shell
+# Count test failures across recent runs
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --limit 5 -c
+2	VirtualMachineInstance migration target DomainNotifyServerRestarts should establish a notify server pipe should be resilient to notify server restarts
+
+	https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15455/pull-kubevirt-unit-test-arm64/1958202806657617920
+
+	https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15447/pull-kubevirt-unit-test-arm64/1958193812496977920
+
+
+1	Migration watcher Migration backoff should not be applied if it is not an evacuation with workload update annotation
+
+	https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15388/pull-kubevirt-unit-test-arm64/1958193968416034816
+```
+
+```shell
+# Show only test names
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --limit 3 -n
+VirtualMachineInstance migration target DomainNotifyServerRestarts should establish a notify server pipe should be resilient to notify server restarts
+Migration watcher Migration backoff should not be applied if it is not an evacuation with workload update annotation
+```
+
+```shell
+# Show only failed job URLs
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --limit 3 -u
+https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15455/pull-kubevirt-unit-test-arm64/1958202806657617920
+https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15388/pull-kubevirt-unit-test-arm64/1958193968416034816
+```
+
 ## Open a tab for each sig-compute job failure
 
 ```shell

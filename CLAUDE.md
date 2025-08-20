@@ -39,3 +39,8 @@ Test different functionality modes:
 - `./healthcheck merge -c` - Count failures
 - `./healthcheck merge --lane-run` - Group by lane run UUID
 - `./healthcheck merge -f` - Show failure details
+- `./healthcheck lane pull-kubevirt-unit-test-arm64` - Analyze recent runs for a specific job
+- `./healthcheck lane pull-kubevirt-e2e-k8s-1.32-sig-compute --limit 5` - Analyze 5 recent runs
+- `./healthcheck lane pull-kubevirt-unit-test-arm64 -c` - Count failures in recent runs
+- `./healthcheck lane pull-kubevirt-unit-test-arm64 -n` - Show only test names
+- `./healthcheck lane pull-kubevirt-unit-test-arm64 -u` - Show only job URLs
