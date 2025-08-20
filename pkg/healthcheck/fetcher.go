@@ -156,30 +156,59 @@ func parseQuarantinedTests(htmlContent string) map[string]bool {
 	return quarantinedTests
 }
 
-// FetchJobHistory fetches recent job runs from the Prow job history page
+// FetchJobHistory fetches recent job runs from the Prow job history page with pagination support
 func FetchJobHistory(jobName string, limit int) ([]JobRun, error) {
-	historyURL := fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName)
+	var allRuns []JobRun
+	baseURL := fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName)
+	currentURL := baseURL
 	
-	resp, err := http.Get(historyURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch job history: %w", err)
-	}
-	defer resp.Body.Close()
+	for len(allRuns) < limit {
+		// Fetch current page
+		resp, err := http.Get(currentURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch job history: %w", err)
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch job history: status code %d", resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to fetch job history: status code %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read job history body: %w", err)
+		}
+
+		// Parse this page's job runs
+		pageRuns, nextBuildID, err := parseJobHistoryPage(string(body), jobName)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add runs from this page (up to our limit)
+		remaining := limit - len(allRuns)
+		if len(pageRuns) <= remaining {
+			allRuns = append(allRuns, pageRuns...)
+		} else {
+			allRuns = append(allRuns, pageRuns[:remaining]...)
+			break
+		}
+
+		// If we have enough runs or no more pages, stop
+		if len(allRuns) >= limit || nextBuildID == "" {
+			break
+		}
+
+		// Prepare URL for next page
+		currentURL = fmt.Sprintf("%s?buildId=%s", baseURL, nextBuildID)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read job history body: %w", err)
-	}
-
-	return parseJobHistory(string(body), jobName, limit)
+	return allRuns, nil
 }
 
-// parseJobHistory extracts job run information from the Prow history HTML page
-func parseJobHistory(htmlContent, jobName string, limit int) ([]JobRun, error) {
+// parseJobHistoryPage extracts job run information from a single Prow history HTML page
+func parseJobHistoryPage(htmlContent, jobName string) ([]JobRun, string, error) {
 	var runs []JobRun
 
 	// Look for allBuilds JSON array in the JavaScript
@@ -187,21 +216,17 @@ func parseJobHistory(htmlContent, jobName string, limit int) ([]JobRun, error) {
 	match := re.FindStringSubmatch(htmlContent)
 	
 	if len(match) < 2 {
-		return runs, fmt.Errorf("could not find allBuilds JSON in page content")
+		return runs, "", fmt.Errorf("could not find allBuilds JSON in page content")
 	}
 
 	// Parse the JSON array
 	var buildData []map[string]interface{}
 	if err := json.Unmarshal([]byte(match[1]), &buildData); err != nil {
-		return runs, fmt.Errorf("failed to parse builds JSON: %w", err)
+		return runs, "", fmt.Errorf("failed to parse builds JSON: %w", err)
 	}
 
-	count := 0
+	var nextBuildID string
 	for _, build := range buildData {
-		if count >= limit {
-			break
-		}
-
 		// Extract build information
 		buildID, ok := build["ID"].(string)
 		if !ok {
@@ -236,10 +261,12 @@ func parseJobHistory(htmlContent, jobName string, limit int) ([]JobRun, error) {
 		}
 
 		runs = append(runs, run)
-		count++
+		
+		// Keep track of the last (oldest) buildID for pagination
+		nextBuildID = buildID
 	}
 
-	return runs, nil
+	return runs, nextBuildID, nil
 }
 
 // fetchJobArtifacts fetches test results from a specific job run's artifacts
