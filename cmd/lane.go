@@ -14,6 +14,7 @@ var (
 	laneDisplayOnlyURLs  bool
 	laneDisplayOnlyTestNames bool
 	laneDisplayFailures  bool
+	laneSincePeriod      string
 )
 
 var laneCmd = &cobra.Command{
@@ -23,10 +24,21 @@ var laneCmd = &cobra.Command{
 	RunE: func(_ *cobra.Command, args []string) error {
 		jobName := args[0]
 
+		// Parse time period if provided
+		timePeriod, err := healthcheck.ParseTimePeriod(laneSincePeriod)
+		if err != nil {
+			return fmt.Errorf("invalid time period: %w", err)
+		}
+
 		// Fetch job history
 		runs, err := healthcheck.FetchJobHistory(jobName, laneLimit)
 		if err != nil {
 			return fmt.Errorf("failed to fetch job history for %s: %w", jobName, err)
+		}
+
+		// Filter runs by time period if specified
+		if timePeriod > 0 {
+			runs = healthcheck.FilterRunsByTimePeriod(runs, timePeriod)
 		}
 
 		// Analyze each run
@@ -55,6 +67,7 @@ func init() {
 	laneCmd.Flags().BoolVarP(&laneDisplayOnlyURLs, "url", "u", false, "Display only failed job URLs")
 	laneCmd.Flags().BoolVarP(&laneDisplayOnlyTestNames, "name", "n", false, "Display only failed test names")
 	laneCmd.Flags().BoolVarP(&laneDisplayFailures, "failures", "f", false, "Print any captured failure context")
+	laneCmd.Flags().StringVarP(&laneSincePeriod, "since", "s", "", "Limit results to given time period (e.g., 24h, 2d, 1w)")
 
 	rootCmd.AddCommand(laneCmd)
 }

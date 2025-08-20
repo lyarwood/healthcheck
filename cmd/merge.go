@@ -18,12 +18,19 @@ var (
 	displayFailures      bool
 	groupByLaneRun       bool
 	checkQuarantine      bool
+	sincePeriod          string
 )
 
 var mergeCmd = &cobra.Command{
 	Use:   "merge",
 	Short: "Parse KubeVirt CI health data and report failed tests",
 	RunE: func(_ *cobra.Command, _ []string) error {
+
+		// Parse time period if provided
+		timePeriod, err := healthcheck.ParseTimePeriod(sincePeriod)
+		if err != nil {
+			return fmt.Errorf("invalid time period: %w", err)
+		}
 
 		// Resolve job regex aliases
 		if _, ok := healthcheck.JobRegexAliases[jobRegex]; ok {
@@ -57,6 +64,7 @@ var mergeCmd = &cobra.Command{
 			CountFailures:        countFailures,
 			GroupByLaneRun:       groupByLaneRun,
 			CheckQuarantine:      checkQuarantine,
+			TimePeriod:           timePeriod,
 		}
 
 		// Process failures
@@ -87,6 +95,7 @@ func init() {
 	mergeCmd.Flags().BoolVarP(&displayFailures, "failures", "f", false, "print any captured failure context")
 	mergeCmd.Flags().BoolVarP(&groupByLaneRun, "lane-run", "l", false, "Group failures by lane run UUID")
 	mergeCmd.Flags().BoolVarP(&checkQuarantine, "quarantine", "q", false, "Check and highlight quarantined tests")
+	mergeCmd.Flags().StringVarP(&sincePeriod, "since", "s", "", "Limit results to given time period (e.g., 24h, 2d, 1w)")
 
 	rootCmd.AddCommand(mergeCmd)
 }

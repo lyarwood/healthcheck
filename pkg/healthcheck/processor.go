@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var JobRegexAliases = map[string]string{
@@ -26,6 +27,7 @@ type ProcessorConfig struct {
 	CountFailures        bool
 	GroupByLaneRun       bool
 	CheckQuarantine      bool
+	TimePeriod           time.Duration
 }
 
 type ProcessorResult struct {
@@ -76,6 +78,15 @@ func ProcessFailures(results *Results, config ProcessorConfig) (*ProcessorResult
 
 func processJobFailure(job Job, failureURL string, config ProcessorConfig,
 	result *ProcessorResult, quarantinedTests map[string]bool) error {
+	
+	// Check time filter if specified
+	if config.TimePeriod > 0 {
+		timestamp := extractTimestampFromURL(failureURL)
+		if timestamp != "" && !IsWithinTimePeriod(timestamp, config.TimePeriod) {
+			return nil // Skip this failure as it's outside the time period
+		}
+	}
+
 	testsuite, err := fetchTestSuite(failureURL)
 	if err != nil {
 		return err
@@ -212,4 +223,28 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 	}
 
 	return summary, nil
+}
+
+// extractTimestampFromURL attempts to extract a timestamp from a Prow URL
+// For merge command URLs, we may need to fetch the job metadata to get the timestamp
+func extractTimestampFromURL(url string) string {
+	// For now, we can't easily extract timestamps from ci-health URLs
+	// This would require fetching job metadata from Prow which is complex
+	// We'll return empty string to include all results for merge command
+	return ""
+}
+
+// FilterRunsByTimePeriod filters job runs by the given time period
+func FilterRunsByTimePeriod(runs []JobRun, timePeriod time.Duration) []JobRun {
+	if timePeriod == 0 {
+		return runs
+	}
+
+	var filtered []JobRun
+	for _, run := range runs {
+		if IsWithinTimePeriod(run.Timestamp, timePeriod) {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
 }

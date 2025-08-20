@@ -35,6 +35,14 @@ https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt
 https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15388/pull-kubevirt-unit-test-arm64/1958193968416034816
 ```
 
+```shell
+# Filter by time period (lane command only - merge command shows all results)
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1h -c
+1	VirtualMachineInstance migration target DomainNotifyServerRestarts should establish a notify server pipe should be resilient to notify server restarts
+
+	https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15455/pull-kubevirt-unit-test-arm64/1958202806657617920
+```
+
 ## Open a tab for each sig-compute job failure
 
 ```shell

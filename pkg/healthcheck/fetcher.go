@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -318,4 +319,52 @@ func fetchTestSuiteFromURL(url string) (*Testsuite, error) {
 	}
 
 	return nil, fmt.Errorf("failed to unmarshal junit XML from %s", url)
+}
+
+// ParseTimePeriod parses time period strings like "24h", "2d", "1w" into a time.Duration
+func ParseTimePeriod(period string) (time.Duration, error) {
+	if period == "" {
+		return 0, nil
+	}
+
+	re := regexp.MustCompile(`^(\d+)([hdw])$`)
+	matches := re.FindStringSubmatch(strings.ToLower(period))
+	
+	if len(matches) != 3 {
+		return 0, fmt.Errorf("invalid time period format: %s (expected format: 24h, 2d, 1w)", period)
+	}
+
+	value, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, fmt.Errorf("invalid number in time period: %s", matches[1])
+	}
+
+	unit := matches[2]
+	switch unit {
+	case "h":
+		return time.Duration(value) * time.Hour, nil
+	case "d":
+		return time.Duration(value) * 24 * time.Hour, nil
+	case "w":
+		return time.Duration(value) * 7 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("invalid time unit: %s (supported: h, d, w)", unit)
+	}
+}
+
+// IsWithinTimePeriod checks if a timestamp is within the given time period from now
+func IsWithinTimePeriod(timestamp string, period time.Duration) bool {
+	if period == 0 {
+		return true // No time filter
+	}
+
+	// Parse the timestamp (ISO 8601 format from Prow)
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		// If we can't parse the timestamp, include it to be safe
+		return true
+	}
+
+	cutoff := time.Now().UTC().Add(-period)
+	return t.After(cutoff)
 }
