@@ -29,6 +29,7 @@ type ProcessorConfig struct {
 	GroupByLaneRun       bool
 	CheckQuarantine      bool
 	TimePeriod           time.Duration
+	SuppressOutput       bool // Suppress all immediate output for JSON formatting
 }
 
 type ProcessorResult struct {
@@ -102,11 +103,11 @@ func processJobFailure(job Job, failureURL string, config ProcessorConfig,
 
 func handleMissingTestsuite(job Job, failureURL string, config ProcessorConfig,
 	result *ProcessorResult, _ map[string]bool) error {
-	if config.DisplayOnlyURLs {
+	if config.DisplayOnlyURLs && !config.SuppressOutput {
 		fmt.Println(failureURL)
 		return nil
 	}
-	if config.DisplayOnlyTestNames {
+	if config.DisplayOnlyTestNames && !config.SuppressOutput {
 		fmt.Printf("%s (no junit file to parse)\n", job.JobName)
 		return nil
 	}
@@ -118,8 +119,15 @@ func handleMissingTestsuite(job Job, failureURL string, config ProcessorConfig,
 		}
 		return nil
 	}
-	fmt.Printf("%s (no junit file to parse)\n", job.JobName)
-	fmt.Printf("%s\n\n", failureURL)
+	if !config.SuppressOutput {
+		fmt.Printf("%s (no junit file to parse)\n", job.JobName)
+		fmt.Printf("%s\n\n", failureURL)
+	}
+	
+	// Always add placeholder testcase for missing junit files
+	placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL}
+	result.FailedTests[placeholder.Name] = append(result.FailedTests[placeholder.Name], placeholder)
+	
 	return nil
 }
 
@@ -130,11 +138,11 @@ func processTestcases(testsuite *Testsuite, failureURL string, config ProcessorC
 			continue
 		}
 
-		if config.DisplayOnlyURLs {
+		if config.DisplayOnlyURLs && !config.SuppressOutput {
 			fmt.Println(failureURL)
 			continue
 		}
-		if config.DisplayOnlyTestNames {
+		if config.DisplayOnlyTestNames && !config.SuppressOutput {
 			fmt.Println(testcase.Name)
 			continue
 		}
@@ -165,11 +173,16 @@ func processTestcase(testcase Testcase, config ProcessorConfig, result *Processo
 	}
 
 	// Default output for non-count, non-grouped mode
-	fmt.Println(testcase.Name)
-	if config.DisplayFailures {
-		fmt.Printf("%s\n\n", testcase.Failure)
+	if !config.SuppressOutput {
+		fmt.Println(testcase.Name)
+		if config.DisplayFailures {
+			fmt.Printf("%s\n\n", testcase.Failure)
+		}
+		fmt.Printf("%s\n\n", testcase.URL)
 	}
-	fmt.Printf("%s\n\n", testcase.URL)
+	
+	// Always add to result data for JSON output or other processing
+	result.FailedTests[testcase.Name] = append(result.FailedTests[testcase.Name], testcase)
 }
 
 // isTestQuarantined checks if a test name matches any quarantined test

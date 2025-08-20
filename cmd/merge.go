@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 
@@ -19,6 +20,7 @@ var (
 	groupByLaneRun       bool
 	checkQuarantine      bool
 	sincePeriod          string
+	outputFormat         string
 )
 
 var mergeCmd = &cobra.Command{
@@ -54,7 +56,7 @@ var mergeCmd = &cobra.Command{
 			return err
 		}
 
-		// Configure processor
+		// Configure processor 
 		config := healthcheck.ProcessorConfig{
 			JobRegex:             jobRegexCompiled,
 			TestRegex:            testRegexCompiled,
@@ -65,6 +67,7 @@ var mergeCmd = &cobra.Command{
 			GroupByLaneRun:       groupByLaneRun,
 			CheckQuarantine:      checkQuarantine,
 			TimePeriod:           timePeriod,
+			SuppressOutput:       outputFormat == "json", // Suppress output for JSON formatting
 		}
 
 		// Process failures
@@ -74,15 +77,19 @@ var mergeCmd = &cobra.Command{
 		}
 
 		// Output results
-		if groupByLaneRun {
-			healthcheck.FormatLaneRunOutput(result.LaneRunFailures, displayFailures)
+		if outputFormat == "json" {
+			return outputMergeJSON(result, config)
+		} else {
+			if groupByLaneRun {
+				healthcheck.FormatLaneRunOutput(result.LaneRunFailures, displayFailures)
+			} else if countFailures {
+				healthcheck.FormatCountedOutput(result.FailedTests, displayFailures)
+			} else {
+				// Default output: display all failed tests
+				healthcheck.FormatCountedOutput(result.FailedTests, displayFailures)
+			}
 			return nil
 		}
-
-		if countFailures {
-			healthcheck.FormatCountedOutput(result.FailedTests, displayFailures)
-		}
-		return nil
 	},
 }
 
@@ -96,6 +103,65 @@ func init() {
 	mergeCmd.Flags().BoolVarP(&groupByLaneRun, "lane-run", "l", false, "Group failures by lane run UUID")
 	mergeCmd.Flags().BoolVarP(&checkQuarantine, "quarantine", "q", false, "Check and highlight quarantined tests")
 	mergeCmd.Flags().StringVarP(&sincePeriod, "since", "s", "", "Limit results to given time period (e.g., 24h, 2d, 1w)")
+	mergeCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text or json")
 
 	rootCmd.AddCommand(mergeCmd)
+}
+
+// outputMergeJSON outputs merge data in JSON format
+func outputMergeJSON(result *healthcheck.ProcessorResult, config healthcheck.ProcessorConfig) error {
+	var output interface{}
+
+	if config.DisplayOnlyURLs {
+		// Extract URLs from all test cases
+		var urls []string
+		for _, testcases := range result.FailedTests {
+			for _, testcase := range testcases {
+				if testcase.URL != "" {
+					urls = append(urls, testcase.URL)
+				}
+			}
+		}
+		output = map[string]interface{}{
+			"urls": urls,
+		}
+	} else if config.DisplayOnlyTestNames {
+		// Extract unique test names
+		testNames := make([]string, 0, len(result.FailedTests))
+		for testName := range result.FailedTests {
+			testNames = append(testNames, testName)
+		}
+		output = map[string]interface{}{
+			"test_names": testNames,
+		}
+	} else if config.GroupByLaneRun {
+		// Group by lane run UUID
+		output = map[string]interface{}{
+			"lane_run_failures": result.LaneRunFailures,
+		}
+	} else if config.CountFailures {
+		// Count failures by test name
+		testCounts := make(map[string]int)
+		for testName, testcases := range result.FailedTests {
+			testCounts[testName] = len(testcases)
+		}
+		output = map[string]interface{}{
+			"test_failure_counts": testCounts,
+			"failed_tests":        result.FailedTests,
+		}
+	} else {
+		// Default: all failed tests with details
+		output = map[string]interface{}{
+			"failed_tests":      result.FailedTests,
+			"lane_run_failures": result.LaneRunFailures,
+		}
+	}
+
+	jsonBytes, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON output: %w", err)
+	}
+
+	fmt.Println(string(jsonBytes))
+	return nil
 }

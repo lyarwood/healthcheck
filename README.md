@@ -77,6 +77,31 @@ testing.tRunner.func1.2({0x2b2e5a0, 0xc001638690})
 ...
 
 https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15455/pull-kubevirt-unit-test-arm64/1958202806657617920
+
+# Output structured JSON data for machine processing
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --limit 3 --output json
+{
+  "job_name": "pull-kubevirt-unit-test-arm64",
+  "all_failures": [
+    {
+      "Name": "VirtualMachineInstance migration target DomainNotifyServerRestarts...",
+      "URL": "https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/...",
+      "Failure": "goroutine 1847 [running]:\ntesting.tRunner.func1.2..."
+    }
+  ]
+}
+
+# JSON output with count mode
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --limit 10 -c --output json
+{
+  "job_name": "pull-kubevirt-unit-test-arm64",
+  "test_failures": {
+    "Test Name 1": [
+      {"Name": "Test Name 1", "URL": "...", "Failure": "..."},
+      {"Name": "Test Name 1", "URL": "...", "Failure": "..."}
+    ]
+  }
+}
 ```
 
 ### Time-Based Analysis (Automatic Pagination)
@@ -235,6 +260,35 @@ $ healthcheck merge -c -f -j compute
 	tests/pool_test.go:760
 
 	https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15098/pull-kubevirt-e2e-k8s-1.32-sig-compute/1944655730044833792
+
+# Output structured JSON data for machine processing
+$ healthcheck merge -j compute --output json
+{
+  "failed_tests": {
+    "[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates": [
+      {
+        "Name": "[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates",
+        "URL": "https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/...",
+        "Failure": {
+          "Message": "",
+          "Type": "Failure",
+          "Value": "Failure tests/pool_test.go:701\nExpected..."
+        }
+      }
+    ]
+  },
+  "lane_run_failures": {...}
+}
+
+# JSON output with count mode
+$ healthcheck merge -j compute -c --output json
+{
+  "test_failure_counts": {
+    "[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates": 3,
+    "[virtctl] usbredir Should work several times": 2
+  },
+  "failed_tests": {...}
+}
 ```
 
 ### Advanced Features
@@ -298,6 +352,25 @@ $ healthcheck merge -f -j compute | grep -A5 -B5 "timeout"
 $ healthcheck merge --quarantine -c
 ```
 
+### Machine Processing and Automation
+
+```shell
+# Export failure data as JSON for further processing
+$ healthcheck merge -j compute --output json > compute_failures.json
+
+# Export lane analysis as JSON for trending tools
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --since 7d --summary --output json > lane_trend.json
+
+# Use JSON output with jq for advanced filtering
+$ healthcheck merge -c --output json | jq '.test_failure_counts | to_entries[] | select(.value > 5)'
+
+# Export specific failure URLs for automated issue creation
+$ healthcheck merge -j storage -u --output json | jq -r '.urls[]'
+
+# Get test names for automated quarantine decisions
+$ healthcheck lane pull-kubevirt-e2e-k8s-1.32-sig-compute --since 3d -c --output json | jq -r '.test_failures | keys[]'
+```
+
 ### CI Health Monitoring
 
 ```shell
@@ -321,6 +394,7 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1w --summary
 - `--name, -n`: Display only failed test names  
 - `--failures, -f`: Print captured failure context
 - `--summary`: Display concise summary with failure patterns and statistics
+- `--output, -o`: Output format - "text" (default) or "json" for structured data
 
 ### Merge Command Flags (CI-Health Data)
 
@@ -333,6 +407,7 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1w --summary
 - `--lane-run`: Group failures by lane run UUID
 - `--quarantine`: Highlight quarantined tests
 - `--since, -s`: Filter results by time period (limited to available ci-health data ~48h)
+- `--output, -o`: Output format - "text" (default) or "json" for structured data
 
 ---
 

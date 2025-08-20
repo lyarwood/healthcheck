@@ -39,6 +39,7 @@ Test different functionality modes:
 - `./healthcheck merge -c` - Count failures
 - `./healthcheck merge --lane-run` - Group by lane run UUID
 - `./healthcheck merge -f` - Show failure details
+- `./healthcheck merge --output json` - Output structured JSON data
 - `./healthcheck lane pull-kubevirt-unit-test-arm64` - Analyze recent runs for a specific job
 - `./healthcheck lane pull-kubevirt-e2e-k8s-1.32-sig-compute --limit 5` - Analyze 5 recent runs
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 -c` - Count failures in recent runs
@@ -46,6 +47,7 @@ Test different functionality modes:
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 -u` - Show only job URLs
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --since 24h` - Show failures from last 24 hours
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --summary` - Show concise summary with patterns
+- `./healthcheck lane pull-kubevirt-unit-test-arm64 --output json` - Output structured JSON data for machine processing
 - `./healthcheck merge -j compute --since 2d` - Show compute failures from last 2 days
 - `./healthcheck mcp` - Start MCP server for LLM integration
 - `./healthcheck mcp --debug` - Start MCP server with debug output
@@ -76,3 +78,43 @@ The MCP server provides 6 tools:
 - Data formats are optimized for LLM consumption
 - JSON responses include health status, trends, and recommendations
 - Comprehensive error handling for robust AI integration
+
+## JSON Output Support
+
+Both lane and merge commands now support `--output json` for structured data output:
+
+### JSON Output Features
+
+- **Machine-readable format**: Structured JSON output suitable for automation and integration
+- **All filter modes supported**: Works with -c, -u, -n, --lane-run, --summary, and other flags
+- **Complete data preservation**: Captures all failure information without truncation
+- **Automation-friendly**: Enables scripting, monitoring, and external tool integration
+
+### JSON Output Commands to Test
+
+- `./healthcheck merge -j compute --output json` - Export compute failures as JSON
+- `./healthcheck lane job-name --limit 10 -c --output json` - Export lane failure counts as JSON
+- `./healthcheck merge -u --output json | jq -r '.urls[]'` - Extract URLs with jq
+- `./healthcheck lane job-name --summary --output json` - Export lane summary for trending
+- `./healthcheck merge --lane-run --output json` - Export grouped failures for analysis
+
+### JSON Structure Examples
+
+Lane output with count mode:
+```json
+{
+  "job_name": "pull-kubevirt-unit-test-arm64",
+  "test_failures": {
+    "TestName1": [{"Name": "...", "URL": "...", "Failure": "..."}],
+    "TestName2": [{"Name": "...", "URL": "...", "Failure": "..."}]
+  }
+}
+```
+
+Merge output with count mode:
+```json
+{
+  "test_failure_counts": {"Test1": 3, "Test2": 1},
+  "failed_tests": {...}
+}
+```
