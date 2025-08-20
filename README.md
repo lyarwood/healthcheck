@@ -43,6 +43,35 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1h -c
 	https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15455/pull-kubevirt-unit-test-arm64/1958202806657617920
 ```
 
+```shell
+# Get a concise summary with failure patterns and statistics
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --limit 5 --summary
+Lane Summary: pull-kubevirt-unit-test-arm64
+===========================================
+
+Test Run Statistics:
+  Total Runs:     5
+  Successful:     0
+  Failed:         4
+  Unknown:        1
+  Failure Rate:   80.0%
+
+Test Failure Statistics:
+  Total Failures: 4
+  Unique Tests:   2
+
+Failure Categories:
+  migration : 4 (100.0%)
+
+Most Frequent Failures:
+  1. [migration] VirtualMachineInstance migration target DomainNotifyServe... (3 failures, 75.0%)
+  2. [migration] Migration watcher Migration backoff should not be applied... (1 failures, 25.0%)
+
+Pattern Analysis:
+  🟡 Moderate failure rate - monitor trends
+  🎯 Single dominant failure pattern (migration)
+```
+
 ## Open a tab for each sig-compute job failure
 
 ```shell

@@ -15,6 +15,7 @@ var (
 	laneDisplayOnlyTestNames bool
 	laneDisplayFailures  bool
 	laneSincePeriod      string
+	laneSummary          bool
 )
 
 var laneCmd = &cobra.Command{
@@ -53,6 +54,7 @@ var laneCmd = &cobra.Command{
 			DisplayOnlyURLs:      laneDisplayOnlyURLs,
 			DisplayOnlyTestNames: laneDisplayOnlyTestNames,
 			DisplayFailures:      laneDisplayFailures,
+			Summary:              laneSummary,
 		}
 
 		// Display results
@@ -68,6 +70,7 @@ func init() {
 	laneCmd.Flags().BoolVarP(&laneDisplayOnlyTestNames, "name", "n", false, "Display only failed test names")
 	laneCmd.Flags().BoolVarP(&laneDisplayFailures, "failures", "f", false, "Print any captured failure context")
 	laneCmd.Flags().StringVarP(&laneSincePeriod, "since", "s", "", "Limit results to given time period (e.g., 24h, 2d, 1w)")
+	laneCmd.Flags().BoolVar(&laneSummary, "summary", false, "Display a concise summary of test runs and failure patterns")
 
 	rootCmd.AddCommand(laneCmd)
 }

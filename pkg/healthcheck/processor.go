@@ -3,6 +3,7 @@ package healthcheck
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -222,6 +223,14 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 		}
 	}
 
+	// Calculate failure rate
+	if summary.TotalRuns > 0 {
+		summary.FailureRate = float64(summary.FailedRuns) / float64(summary.TotalRuns) * 100
+	}
+
+	// Analyze failure patterns
+	summary.TopFailures = analyzeFailurePatterns(summary.TestFailures, len(summary.AllFailures))
+
 	return summary, nil
 }
 
@@ -247,4 +256,64 @@ func FilterRunsByTimePeriod(runs []JobRun, timePeriod time.Duration) []JobRun {
 		}
 	}
 	return filtered
+}
+
+// analyzeFailurePatterns analyzes test failures to identify patterns and categories
+func analyzeFailurePatterns(testFailures map[string]int, totalFailures int) []TestFailurePattern {
+	var patterns []TestFailurePattern
+
+	// Convert to sortable slice
+	for testName, count := range testFailures {
+		percentage := float64(count) / float64(totalFailures) * 100
+		if totalFailures == 0 {
+			percentage = 0
+		}
+
+		pattern := TestFailurePattern{
+			TestName:   testName,
+			Count:      count,
+			Percentage: percentage,
+			Category:   categorizeTest(testName),
+		}
+		patterns = append(patterns, pattern)
+	}
+
+	// Sort by count (descending)
+	sort.Slice(patterns, func(i, j int) bool {
+		return patterns[i].Count > patterns[j].Count
+	})
+
+	// Return top 5 patterns
+	if len(patterns) > 5 {
+		patterns = patterns[:5]
+	}
+
+	return patterns
+}
+
+// categorizeTest attempts to categorize a test based on its name
+func categorizeTest(testName string) string {
+	testLower := strings.ToLower(testName)
+
+	// Check for common categories based on test name patterns
+	if strings.Contains(testLower, "network") || strings.Contains(testLower, "bridge") || 
+	   strings.Contains(testLower, "masquerade") || strings.Contains(testLower, "sriov") {
+		return "network"
+	}
+	if strings.Contains(testLower, "storage") || strings.Contains(testLower, "volume") || 
+	   strings.Contains(testLower, "disk") || strings.Contains(testLower, "pvc") {
+		return "storage"
+	}
+	if strings.Contains(testLower, "migration") || strings.Contains(testLower, "migrate") {
+		return "migration"
+	}
+	if strings.Contains(testLower, "compute") || strings.Contains(testLower, "cpu") || 
+	   strings.Contains(testLower, "memory") || strings.Contains(testLower, "lifecycle") {
+		return "compute"
+	}
+	if strings.Contains(testLower, "operator") {
+		return "operator"
+	}
+
+	return "general"
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 )
 
 func FormatLaneRunOutput(laneRunFailures map[string][]Testcase, displayFailures bool) {
@@ -66,6 +67,12 @@ func FormatCountedOutput(failedTests map[string][]Testcase, displayFailures bool
 
 // FormatLaneOutput displays lane analysis results in various formats
 func FormatLaneOutput(jobName string, summary *LaneSummary, config LaneDisplayConfig) {
+	// Handle summary output
+	if config.Summary {
+		FormatLaneSummary(jobName, summary)
+		return
+	}
+
 	// Handle URL-only output
 	if config.DisplayOnlyURLs {
 		for _, run := range summary.Runs {
@@ -104,4 +111,85 @@ func FormatLaneOutput(jobName string, summary *LaneSummary, config LaneDisplayCo
 		}
 		fmt.Printf("%s\n\n", failure.URL)
 	}
+}
+
+// FormatLaneSummary displays a concise summary of lane analysis
+func FormatLaneSummary(jobName string, summary *LaneSummary) {
+	fmt.Printf("Lane Summary: %s\n", jobName)
+	fmt.Printf("=" + strings.Repeat("=", len(jobName)+13) + "\n\n")
+
+	// Overall statistics
+	fmt.Printf("Test Run Statistics:\n")
+	fmt.Printf("  Total Runs:     %d\n", summary.TotalRuns)
+	fmt.Printf("  Successful:     %d\n", summary.SuccessfulRuns)
+	fmt.Printf("  Failed:         %d\n", summary.FailedRuns)
+	fmt.Printf("  Unknown:        %d\n", summary.TotalRuns-summary.SuccessfulRuns-summary.FailedRuns)
+	fmt.Printf("  Failure Rate:   %.1f%%\n\n", summary.FailureRate)
+
+	// Test failure statistics
+	if len(summary.AllFailures) > 0 {
+		fmt.Printf("Test Failure Statistics:\n")
+		fmt.Printf("  Total Failures: %d\n", len(summary.AllFailures))
+		fmt.Printf("  Unique Tests:   %d\n\n", len(summary.TestFailures))
+
+		// Category breakdown
+		if len(summary.TopFailures) > 0 {
+			fmt.Printf("Failure Categories:\n")
+			categories := make(map[string]int)
+			for _, pattern := range summary.TopFailures {
+				categories[pattern.Category] += pattern.Count
+			}
+			
+			for category, count := range categories {
+				percentage := float64(count) / float64(len(summary.AllFailures)) * 100
+				fmt.Printf("  %-10s: %d (%.1f%%)\n", category, count, percentage)
+			}
+			fmt.Println()
+
+			// Top failing tests
+			fmt.Printf("Most Frequent Failures:\n")
+			for i, pattern := range summary.TopFailures {
+				if i >= 3 { // Show only top 3
+					break
+				}
+				fmt.Printf("  %d. [%s] %s (%d failures, %.1f%%)\n", 
+					i+1, pattern.Category, truncateTestName(pattern.TestName, 60), 
+					pattern.Count, pattern.Percentage)
+			}
+			fmt.Println()
+		}
+
+		// Pattern insights
+		fmt.Printf("Pattern Analysis:\n")
+		if summary.FailureRate > 80 {
+			fmt.Printf("  🔴 High failure rate - investigate systemic issues\n")
+		} else if summary.FailureRate > 50 {
+			fmt.Printf("  🟡 Moderate failure rate - monitor trends\n")
+		} else if summary.FailureRate > 20 {
+			fmt.Printf("  🟠 Low failure rate - normal fluctuation\n")
+		} else {
+			fmt.Printf("  🟢 Very low failure rate - stable\n")
+		}
+
+		if len(summary.TopFailures) > 0 {
+			topFailure := summary.TopFailures[0]
+			if topFailure.Percentage > 50 {
+				fmt.Printf("  🎯 Single dominant failure pattern (%s)\n", topFailure.Category)
+			} else if len(summary.TopFailures) >= 2 && summary.TopFailures[1].Percentage > 25 {
+				fmt.Printf("  📊 Multiple significant failure patterns\n")
+			} else {
+				fmt.Printf("  🔀 Diverse failure patterns - no clear dominant issue\n")
+			}
+		}
+	} else {
+		fmt.Printf("🎉 No test failures detected!\n")
+	}
+}
+
+// truncateTestName truncates long test names for display
+func truncateTestName(name string, maxLen int) string {
+	if len(name) <= maxLen {
+		return name
+	}
+	return name[:maxLen-3] + "..."
 }

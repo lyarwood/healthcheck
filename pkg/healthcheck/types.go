@@ -58,6 +58,15 @@ type LaneSummary struct {
 	TestFailures  map[string]int
 	Runs          []JobRun
 	AllFailures   []Testcase  // All test failures across all runs
+	FailureRate   float64     // Percentage of runs that failed
+	TopFailures   []TestFailurePattern // Most common failure patterns
+}
+
+type TestFailurePattern struct {
+	TestName    string
+	Count       int
+	Percentage  float64
+	Category    string // e.g., "compute", "network", "storage"
 }
 
 type LaneDisplayConfig struct {
@@ -65,4 +74,5 @@ type LaneDisplayConfig struct {
 	DisplayOnlyURLs      bool
 	DisplayOnlyTestNames bool
 	DisplayFailures      bool
+	Summary              bool
 }

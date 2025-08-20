@@ -45,4 +45,5 @@ Test different functionality modes:
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 -n` - Show only test names
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 -u` - Show only job URLs
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --since 24h` - Show failures from last 24 hours
+- `./healthcheck lane pull-kubevirt-unit-test-arm64 --summary` - Show concise summary with patterns
 - `./healthcheck merge -j compute --since 2d` - Show compute failures from last 2 days
