@@ -206,6 +206,142 @@ type LLMSourceFile struct {
 	FileType     string `json:"file_type"`
 }
 
+// New data structures for extended MCP tools
+
+type LLMTrendAnalysis struct {
+	JobName            string                     `json:"job_name"`
+	TrendPeriod        string                     `json:"trend_period"`
+	TotalRuns          int                        `json:"total_runs"`
+	FailedRuns         int                        `json:"failed_runs"`
+	SuccessfulRuns     int                        `json:"successful_runs"`
+	OverallFailureRate float64                    `json:"overall_failure_rate"`
+	TrendDirection     string                     `json:"trend_direction"`
+	Flakiness          LLMFlakinessAnalysis       `json:"flakiness_analysis"`
+	FailurePatterns    []LLMTrendFailurePattern   `json:"failure_patterns"`
+	Recommendations    []string                   `json:"recommendations"`
+}
+
+type LLMFlakinessAnalysis struct {
+	FlakyTests      []string `json:"flaky_tests"`
+	FlakinessScore  float64  `json:"flakiness_score"`
+	PatternDetected bool     `json:"pattern_detected"`
+}
+
+type LLMTrendFailurePattern struct {
+	TestName  string `json:"test_name"`
+	Frequency int    `json:"frequency"`
+	Trend     string `json:"trend"`
+	Severity  string `json:"severity"`
+}
+
+type LLMCorrelationAnalysis struct {
+	JobPattern          string                  `json:"job_pattern"`
+	TimeWindow          string                  `json:"time_window"`
+	CorrelatedFailures  []LLMCorrelatedFailure  `json:"correlated_failures"`
+	EnvironmentAnalysis LLMEnvironmentAnalysis  `json:"environment_analysis"`
+	SystemicIssues      []LLMSystemicIssue      `json:"systemic_issues"`
+	Recommendations     []string                `json:"recommendations"`
+}
+
+type LLMCorrelatedFailure struct {
+	TestName         string   `json:"test_name"`
+	AffectedJobs     []string `json:"affected_jobs"`
+	CorrelationScore float64  `json:"correlation_score"`
+	Pattern          string   `json:"pattern"`
+}
+
+type LLMEnvironmentAnalysis struct {
+	ArchitectureFailures map[string]int `json:"architecture_failures"`
+	KubernetesVersions   map[string]int `json:"kubernetes_versions"`
+	ResourceIssues       []string       `json:"resource_issues"`
+}
+
+type LLMSystemicIssue struct {
+	IssueType    string   `json:"issue_type"`
+	Description  string   `json:"description"`
+	AffectedJobs []string `json:"affected_jobs"`
+	Severity     string   `json:"severity"`
+}
+
+type LLMQuarantineAnalysis struct {
+	Scope                   string                        `json:"scope"`
+	TotalQuarantinedTests   int                           `json:"total_quarantined_tests"`
+	QuarantineEffectiveness string                        `json:"quarantine_effectiveness"`
+	ActiveQuarantines       []LLMQuarantineStatus         `json:"active_quarantines"`
+	RecommendedActions      []LLMQuarantineRecommendation `json:"recommended_actions"`
+}
+
+type LLMQuarantineStatus struct {
+	TestName           string  `json:"test_name"`
+	Status             string  `json:"status"`
+	EffectivenessScore float64 `json:"effectiveness_score"`
+	RecommendedAction  string  `json:"recommended_action"`
+}
+
+type LLMQuarantineRecommendation struct {
+	TestName    string `json:"test_name"`
+	Action      string `json:"action"`
+	Reasoning   string `json:"reasoning"`
+	Priority    string `json:"priority"`
+}
+
+type LLMImpactAssessment struct {
+	Context               string                     `json:"context"`
+	OverallImpact         string                     `json:"overall_impact"`
+	TriagePriority        string                     `json:"triage_priority"`
+	ImpactCategories      map[string]LLMImpactCategory `json:"impact_categories"`
+	CriticalFailures      []LLMCriticalFailure       `json:"critical_failures"`
+	TriageRecommendations []string                   `json:"triage_recommendations"`
+}
+
+type LLMImpactCategory struct {
+	Category        string  `json:"category"`
+	ImpactLevel     string  `json:"impact_level"`
+	FailureCount    int     `json:"failure_count"`
+	BusinessImpact  string  `json:"business_impact"`
+}
+
+type LLMCriticalFailure struct {
+	TestName        string `json:"test_name"`
+	ImpactLevel     string `json:"impact_level"`
+	Frequency       int    `json:"frequency"`
+	BusinessImpact  string `json:"business_impact"`
+	RecommendedAction string `json:"recommended_action"`
+}
+
+type LLMFailureReport struct {
+	Scope            string           `json:"scope"`
+	Format           string           `json:"format"`
+	GeneratedAt      string           `json:"generated_at"`
+	ExecutiveSummary string           `json:"executive_summary"`
+	KeyMetrics       LLMReportMetrics `json:"key_metrics"`
+	CriticalIssues   []LLMReportIssue `json:"critical_issues"`
+	TrendAnalysis    LLMReportTrends  `json:"trend_analysis"`
+	ActionItems      []string         `json:"action_items"`
+}
+
+type LLMReportMetrics struct {
+	TotalJobs       int     `json:"total_jobs"`
+	FailingJobs     int     `json:"failing_jobs"`
+	OverallHealth   string  `json:"overall_health"`
+	FailureRate     float64 `json:"failure_rate"`
+	CriticalIssues  int     `json:"critical_issues"`
+}
+
+type LLMReportIssue struct {
+	IssueType   string   `json:"issue_type"`
+	Description string   `json:"description"`
+	Severity    string   `json:"severity"`
+	Impact      string   `json:"impact"`
+	Actions     []string `json:"recommended_actions"`
+}
+
+type LLMReportTrends struct {
+	Direction       string `json:"direction"`
+	ChangePercent   float64 `json:"change_percent"`
+	KeyChanges      []string `json:"key_changes"`
+}
+
 // formatLaneSummaryForLLM converts lane summary to LLM-optimized format
 func formatLaneSummaryForLLM(jobName string, summary *healthcheck.LaneSummary, includeDetails bool) LLMJobAnalysis {
 	analysis := LLMJobAnalysis{

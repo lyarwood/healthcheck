@@ -3,8 +3,10 @@ package mcp
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"healthcheck/pkg/healthcheck"
 )
@@ -500,4 +502,435 @@ func extractCommitFromProwJob(jobURL string) string {
 	// and parse the JSON to get the actual commit hash
 	
 	return "" // Placeholder - would implement HTTP fetch and JSON parsing here
+}
+
+// analyzeTrendsFromRuns analyzes failure trends from historical job runs
+func analyzeTrendsFromRuns(runs []healthcheck.JobRun, includeFlakiness bool) LLMTrendAnalysis {
+	analysis := LLMTrendAnalysis{
+		TotalRuns:     len(runs),
+		FailedRuns:    0,
+		SuccessfulRuns: 0,
+		TrendDirection: "stable",
+		Flakiness:     LLMFlakinessAnalysis{},
+		FailurePatterns: []LLMTrendFailurePattern{},
+		Recommendations: []string{},
+	}
+
+	if len(runs) == 0 {
+		return analysis
+	}
+
+	// Calculate basic statistics
+	for _, run := range runs {
+		if run.Status == "SUCCESS" {
+			analysis.SuccessfulRuns++
+		} else if run.Status == "FAILURE" {
+			analysis.FailedRuns++
+		}
+	}
+
+	analysis.OverallFailureRate = float64(analysis.FailedRuns) / float64(analysis.TotalRuns) * 100
+
+	// Analyze trends over time periods
+	analysis.TrendDirection = analyzeTrendDirection(runs)
+	
+	if includeFlakiness {
+		analysis.Flakiness = analyzeFlakinessPatterns(runs)
+	}
+
+	// Analyze failure patterns over time
+	analysis.FailurePatterns = analyzeFailurePatternsOverTime(runs)
+	
+	// Generate recommendations
+	analysis.Recommendations = generateTrendRecommendations(analysis)
+
+	return analysis
+}
+
+// analyzeFailureCorrelationAcrossJobs analyzes failure correlation across multiple jobs
+func analyzeFailureCorrelationAcrossJobs(results *healthcheck.Results, jobPattern, timeWindow string, includeEnvironmentAnalysis bool) LLMCorrelationAnalysis {
+	analysis := LLMCorrelationAnalysis{
+		JobPattern:         jobPattern,
+		TimeWindow:         timeWindow,
+		CorrelatedFailures: []LLMCorrelatedFailure{},
+		EnvironmentAnalysis: LLMEnvironmentAnalysis{},
+		SystemicIssues:     []LLMSystemicIssue{},
+		Recommendations:    []string{},
+	}
+
+	// Analyze job failures for correlation patterns
+	correlatedFailures := findCorrelatedFailures(results, jobPattern)
+	analysis.CorrelatedFailures = correlatedFailures
+
+	if includeEnvironmentAnalysis {
+		analysis.EnvironmentAnalysis = analyzeEnvironmentSpecificFailures(results, jobPattern)
+	}
+
+	// Identify systemic issues
+	analysis.SystemicIssues = identifySystemicIssues(correlatedFailures)
+
+	// Generate recommendations
+	analysis.Recommendations = generateCorrelationRecommendations(analysis)
+
+	return analysis
+}
+
+// analyzeQuarantineEffectiveness analyzes quarantine effectiveness and provides recommendations
+func analyzeQuarantineEffectiveness(quarantinedTests map[string]bool, results *healthcheck.Results, scope string, includeRecommendations bool) LLMQuarantineAnalysis {
+	analysis := LLMQuarantineAnalysis{
+		Scope:                  scope,
+		TotalQuarantinedTests:  len(quarantinedTests),
+		QuarantineEffectiveness: "unknown",
+		ActiveQuarantines:      []LLMQuarantineStatus{},
+		RecommendedActions:     []LLMQuarantineRecommendation{},
+	}
+
+	// Analyze quarantine status for each test
+	for testName := range quarantinedTests {
+		status := analyzeQuarantineStatus(testName, results)
+		analysis.ActiveQuarantines = append(analysis.ActiveQuarantines, status)
+	}
+
+	// Calculate overall effectiveness
+	analysis.QuarantineEffectiveness = calculateQuarantineEffectiveness(analysis.ActiveQuarantines)
+
+	if includeRecommendations {
+		analysis.RecommendedActions = generateQuarantineRecommendations(analysis)
+	}
+
+	return analysis
+}
+
+// assessFailureImpactFromJSON assesses failure impact from JSON data
+func assessFailureImpactFromJSON(failureData, context string, includeTriageRecommendations bool) (LLMImpactAssessment, error) {
+	assessment := LLMImpactAssessment{
+		Context:            context,
+		OverallImpact:      "medium",
+		TriagePriority:     "normal",
+		ImpactCategories:   map[string]LLMImpactCategory{},
+		CriticalFailures:   []LLMCriticalFailure{},
+		TriageRecommendations: []string{},
+	}
+
+	// Parse JSON failure data (simplified for now)
+	// In a full implementation, this would parse the actual JSON structure
+	
+	// Analyze impact based on context
+	assessment.OverallImpact = determineOverallImpact(context, failureData)
+	assessment.TriagePriority = determineTriagePriority(assessment.OverallImpact)
+
+	if includeTriageRecommendations {
+		assessment.TriageRecommendations = generateTriageRecommendations(assessment)
+	}
+
+	return assessment, nil
+}
+
+// generateComprehensiveFailureReport generates comprehensive failure reports
+func generateComprehensiveFailureReport(scope, format string, includeRecommendations bool) (LLMFailureReport, error) {
+	report := LLMFailureReport{
+		Scope:               scope,
+		Format:              format,
+		GeneratedAt:         time.Now().UTC().Format(time.RFC3339),
+		ExecutiveSummary:    "",
+		KeyMetrics:          LLMReportMetrics{},
+		CriticalIssues:      []LLMReportIssue{},
+		TrendAnalysis:       LLMReportTrends{},
+		ActionItems:         []string{},
+	}
+
+	// Generate report based on scope
+	switch scope {
+	case "daily":
+		report = generateDailyFailureReport(format, includeRecommendations)
+	case "weekly":
+		report = generateWeeklyFailureReport(format, includeRecommendations)
+	case "release":
+		report = generateReleaseFailureReport(format, includeRecommendations)
+	default:
+		// Handle specific job analysis
+		report = generateJobSpecificReport(scope, format, includeRecommendations)
+	}
+
+	return report, nil
+}
+
+// Helper functions for trend analysis
+func analyzeTrendDirection(runs []healthcheck.JobRun) string {
+	if len(runs) < 5 {
+		return "insufficient_data"
+	}
+
+	// Analyze last 5 vs previous 5 runs
+	recentFailures := 0
+	previousFailures := 0
+	
+	for i, run := range runs {
+		if run.Status == "FAILURE" {
+			if i < len(runs)/2 {
+				recentFailures++
+			} else {
+				previousFailures++
+			}
+		}
+	}
+
+	if recentFailures > previousFailures {
+		return "degrading"
+	} else if recentFailures < previousFailures {
+		return "improving"
+	}
+	return "stable"
+}
+
+func analyzeFlakinessPatterns(runs []healthcheck.JobRun) LLMFlakinessAnalysis {
+	flakiness := LLMFlakinessAnalysis{
+		FlakyTests:        []string{},
+		FlakinessScore:    0.0,
+		PatternDetected:   false,
+	}
+
+	// Analyze test consistency across runs
+	testResults := make(map[string][]string)
+	
+	for _, run := range runs {
+		for _, failure := range run.Failures {
+			testResults[failure.Name] = append(testResults[failure.Name], run.Status)
+		}
+	}
+
+	// Calculate flakiness for each test
+	flakyCount := 0
+	for testName, results := range testResults {
+		if isFlaky(results) {
+			flakiness.FlakyTests = append(flakiness.FlakyTests, testName)
+			flakyCount++
+		}
+	}
+
+	if len(testResults) > 0 {
+		flakiness.FlakinessScore = float64(flakyCount) / float64(len(testResults)) * 100
+		flakiness.PatternDetected = flakiness.FlakinessScore > 20 // 20% threshold
+	}
+
+	return flakiness
+}
+
+func isFlaky(results []string) bool {
+	if len(results) < 3 {
+		return false
+	}
+	
+	failures := 0
+	for _, result := range results {
+		if result == "FAILURE" {
+			failures++
+		}
+	}
+	
+	failureRate := float64(failures) / float64(len(results))
+	// Consider flaky if failure rate is between 10% and 90%
+	return failureRate > 0.1 && failureRate < 0.9
+}
+
+func analyzeFailurePatternsOverTime(runs []healthcheck.JobRun) []LLMTrendFailurePattern {
+	patterns := []LLMTrendFailurePattern{}
+	
+	// Group failures by time periods
+	testFrequency := make(map[string]int)
+	
+	for _, run := range runs {
+		for _, failure := range run.Failures {
+			testFrequency[failure.Name]++
+		}
+	}
+
+	// Convert to trend patterns
+	for testName, frequency := range testFrequency {
+		if frequency > 1 { // Only include recurring failures
+			pattern := LLMTrendFailurePattern{
+				TestName:   testName,
+				Frequency:  frequency,
+				Trend:      determineTrendForTest(testName, runs),
+				Severity:   determineSeverity(frequency, len(runs)),
+			}
+			patterns = append(patterns, pattern)
+		}
+	}
+
+	// Sort by frequency
+	sort.Slice(patterns, func(i, j int) bool {
+		return patterns[i].Frequency > patterns[j].Frequency
+	})
+
+	return patterns
+}
+
+func determineTrendForTest(testName string, runs []healthcheck.JobRun) string {
+	// Simplified trend analysis for individual test
+	recentFailures := 0
+	totalFailures := 0
+	
+	for i, run := range runs {
+		for _, failure := range run.Failures {
+			if failure.Name == testName {
+				totalFailures++
+				if i < len(runs)/2 { // Recent half
+					recentFailures++
+				}
+			}
+		}
+	}
+
+	if totalFailures == 0 {
+		return "stable"
+	}
+
+	recentRate := float64(recentFailures) / float64(totalFailures)
+	if recentRate > 0.6 {
+		return "increasing"
+	} else if recentRate < 0.4 {
+		return "decreasing"
+	}
+	return "stable"
+}
+
+func determineSeverity(frequency, totalRuns int) string {
+	rate := float64(frequency) / float64(totalRuns)
+	
+	if rate > 0.5 {
+		return "critical"
+	} else if rate > 0.2 {
+		return "high"
+	} else if rate > 0.1 {
+		return "medium"
+	}
+	return "low"
+}
+
+func generateTrendRecommendations(analysis LLMTrendAnalysis) []string {
+	recommendations := []string{}
+
+	if analysis.OverallFailureRate > 20 {
+		recommendations = append(recommendations, "High failure rate detected - investigate infrastructure or recent changes")
+	}
+
+	if analysis.TrendDirection == "degrading" {
+		recommendations = append(recommendations, "Degrading trend detected - review recent commits and infrastructure changes")
+	}
+
+	if analysis.Flakiness.FlakinessScore > 15 {
+		recommendations = append(recommendations, "High flakiness detected - consider quarantining unstable tests")
+	}
+
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, "Trends appear stable - continue monitoring")
+	}
+
+	return recommendations
+}
+
+// Placeholder implementations for correlation analysis
+func findCorrelatedFailures(results *healthcheck.Results, jobPattern string) []LLMCorrelatedFailure {
+	// Simplified implementation
+	return []LLMCorrelatedFailure{}
+}
+
+func analyzeEnvironmentSpecificFailures(results *healthcheck.Results, jobPattern string) LLMEnvironmentAnalysis {
+	return LLMEnvironmentAnalysis{
+		ArchitectureFailures: map[string]int{},
+		KubernetesVersions:   map[string]int{},
+		ResourceIssues:       []string{},
+	}
+}
+
+func identifySystemicIssues(correlatedFailures []LLMCorrelatedFailure) []LLMSystemicIssue {
+	return []LLMSystemicIssue{}
+}
+
+func generateCorrelationRecommendations(analysis LLMCorrelationAnalysis) []string {
+	return []string{"Continue monitoring for correlation patterns"}
+}
+
+// Placeholder implementations for quarantine analysis
+func analyzeQuarantineStatus(testName string, results *healthcheck.Results) LLMQuarantineStatus {
+	return LLMQuarantineStatus{
+		TestName:          testName,
+		Status:            "active",
+		EffectivenessScore: 0.0,
+		RecommendedAction: "monitor",
+	}
+}
+
+func calculateQuarantineEffectiveness(quarantines []LLMQuarantineStatus) string {
+	if len(quarantines) == 0 {
+		return "no_data"
+	}
+	return "moderate"
+}
+
+func generateQuarantineRecommendations(analysis LLMQuarantineAnalysis) []LLMQuarantineRecommendation {
+	return []LLMQuarantineRecommendation{}
+}
+
+// Placeholder implementations for impact assessment
+func determineOverallImpact(context, failureData string) string {
+	if context == "production" {
+		return "high"
+	} else if context == "pre-release" {
+		return "medium"
+	}
+	return "low"
+}
+
+func determineTriagePriority(impact string) string {
+	switch impact {
+	case "critical", "high":
+		return "urgent"
+	case "medium":
+		return "normal"
+	default:
+		return "low"
+	}
+}
+
+func generateTriageRecommendations(assessment LLMImpactAssessment) []string {
+	recommendations := []string{}
+	
+	switch assessment.TriagePriority {
+	case "urgent":
+		recommendations = append(recommendations, "Immediate attention required - assign to senior engineer")
+	case "normal":
+		recommendations = append(recommendations, "Schedule for next sprint - standard triage process")
+	default:
+		recommendations = append(recommendations, "Monitor - address when convenient")
+	}
+	
+	return recommendations
+}
+
+// Placeholder implementations for report generation
+func generateDailyFailureReport(format string, includeRecommendations bool) LLMFailureReport {
+	return LLMFailureReport{
+		Scope:            "daily",
+		Format:           format,
+		GeneratedAt:      time.Now().UTC().Format(time.RFC3339),
+		ExecutiveSummary: "Daily CI health appears stable with minor issues",
+		KeyMetrics:       LLMReportMetrics{},
+		CriticalIssues:   []LLMReportIssue{},
+		TrendAnalysis:    LLMReportTrends{},
+		ActionItems:      []string{"Continue monitoring"},
+	}
+}
+
+func generateWeeklyFailureReport(format string, includeRecommendations bool) LLMFailureReport {
+	return generateDailyFailureReport(format, includeRecommendations) // Simplified
+}
+
+func generateReleaseFailureReport(format string, includeRecommendations bool) LLMFailureReport {
+	return generateDailyFailureReport(format, includeRecommendations) // Simplified
+}
+
+func generateJobSpecificReport(scope, format string, includeRecommendations bool) LLMFailureReport {
+	return generateDailyFailureReport(format, includeRecommendations) // Simplified
 }

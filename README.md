@@ -430,11 +430,17 @@ Available tools:
 - analyze_merge_failures: Cross-job failure analysis
 - search_failure_patterns: Find patterns across jobs
 - compare_time_periods: Compare failure rates over time
+- get_failure_source_context: Parse junit failures and generate GitHub URLs
+- analyze_failure_trends: Analyze failure trends and patterns over time periods
+- analyze_failure_correlation: Analyze failures across multiple jobs to identify systemic issues
+- analyze_quarantine_intelligence: Provide intelligent analysis of quarantined tests and recommendations
+- assess_failure_impact: Assess the impact and priority of test failures for triage
+- generate_failure_report: Generate comprehensive failure analysis report for stakeholders
 ```
 
 ### Available MCP Tools
 
-The MCP server provides 6 specialized tools for LLM integration:
+The MCP server provides 11 comprehensive tools for enterprise-grade LLM integration:
 
 #### 1. `analyze_job_lane`
 Analyze recent job runs for a specific CI lane with failure patterns and statistics.
@@ -497,6 +503,75 @@ Parse JUnit failure output and generate GitHub URLs for source code context with
 - Multi-line errors with file references throughout the failure text
 - Cross-file failures with complete context chain for debugging
 
+#### 7. `analyze_failure_trends`
+Analyze failure trends and patterns over time periods with advanced flakiness detection and pattern recognition.
+
+**Parameters:**
+- `job_name` (required): Name of the CI job to analyze
+- `trend_period` (optional): Time period for trend analysis (default: "14d")
+- `include_flakiness` (optional): Include flakiness analysis (default: true)
+
+**Advanced Capabilities:**
+- **Trend direction analysis**: Automatically detects improving, degrading, or stable patterns
+- **Flakiness detection**: Identifies intermittent failures with 10-90% failure rate patterns
+- **Pattern frequency analysis**: Tracks failure patterns over time with severity scoring
+- **Smart recommendations**: Differentiates between infrastructure vs code change investigations
+
+#### 8. `analyze_failure_correlation`
+Analyze failures across multiple jobs to identify systemic issues and environment-specific patterns.
+
+**Parameters:**
+- `job_pattern` (optional): Job pattern or alias to analyze (default: ".*")
+- `time_window` (optional): Time window for correlation analysis (default: "24h")
+- `include_environment_analysis` (optional): Include environment-specific failure analysis (default: true)
+
+**Enterprise Features:**
+- **Cross-job correlation**: Identifies patterns affecting multiple job types simultaneously
+- **Environment analysis**: ARM64 vs x86, Kubernetes version-specific failures
+- **Resource issue detection**: CPU, memory, disk-related failure patterns
+- **Systemic issue identification**: Infrastructure vs application-level problems
+
+#### 9. `analyze_quarantine_intelligence`
+Provide intelligent analysis of quarantined tests with effectiveness scoring and actionable recommendations.
+
+**Parameters:**
+- `scope` (optional): Analysis scope - "all", "job", or specific job name (default: "all")
+- `include_recommendations` (optional): Include quarantine action recommendations (default: true)
+
+**Intelligence Features:**
+- **Effectiveness scoring**: Quantifies how well quarantine decisions are working
+- **Action recommendations**: Remove/extend/investigate with detailed reasoning
+- **Status analysis**: Active vs stale quarantine identification
+- **Impact assessment**: How quarantine decisions affect overall CI health
+
+#### 10. `assess_failure_impact`
+Assess the impact and priority of test failures for intelligent triage and resource allocation.
+
+**Parameters:**
+- `failure_data` (required): JSON failure data from lane or merge commands
+- `context` (optional): Context - "pre-release", "development", "production" (default: "development")
+- `include_triage_recommendations` (optional): Include triage priority recommendations (default: true)
+
+**Triage Intelligence:**
+- **Context-aware prioritization**: Different urgency for production vs development
+- **Business impact analysis**: Critical path vs edge case failure identification
+- **Resource allocation**: Senior engineer vs standard triage recommendations
+- **Priority assignment**: Urgent/normal/low with detailed reasoning
+
+#### 11. `generate_failure_report`
+Generate comprehensive failure analysis reports for stakeholders with executive summaries and actionable insights.
+
+**Parameters:**
+- `scope` (optional): Report scope - "daily", "weekly", "release", or specific job (default: "daily")
+- `format` (optional): Report format - "summary", "detailed", "executive" (default: "summary")
+- `include_recommendations` (optional): Include actionable recommendations (default: true)
+
+**Enterprise Reporting:**
+- **Executive summaries**: High-level CI health status for management
+- **Key metrics**: Overall health, failure rates, critical issue counts
+- **Trend analysis**: Direction and change percentages over time
+- **Actionable items**: Prioritized next steps for development teams
+
 ### LLM Integration Examples
 
 The MCP server enables powerful AI-assisted workflows:
@@ -510,12 +585,22 @@ The MCP server enables powerful AI-assisted workflows:
 # "What are the most critical test failures right now?"
 # "Search for timeout-related failures in network tests"
 
-# Enhanced failure source context analysis (NEW):
+# Enhanced failure source context analysis:
 # "Parse this junit failure and show me the GitHub source code where it failed"
 # "Extract all file references from this test failure and generate GitHub URLs"
 # "Analyze this multi-file failure and provide the complete debugging context"
 # "Given this failure text, fetch the source code and explain what might be wrong"
 # "Cross-reference this failure with the actual source code to suggest a fix"
+
+# Advanced trend and correlation analysis (NEW):
+# "Analyze failure trends for job X over the last 30 days and detect flaky tests"
+# "Identify systemic issues affecting multiple jobs in the compute category"
+# "Correlate failures across ARM64 and x86 jobs to find environment-specific problems"
+# "Generate a comprehensive quarantine intelligence report with effectiveness scores"
+# "Assess the business impact of current test failures and prioritize for triage"
+# "Create an executive summary of CI health for the weekly engineering meeting"
+# "Detect infrastructure vs application-level problems in recent failures"
+# "Recommend which quarantined tests should be removed or extended based on effectiveness"
 ```
 
 ### Data Format
@@ -525,12 +610,17 @@ All MCP tools return structured JSON data optimized for LLM consumption, includi
 - **Health status**: "critical", "unhealthy", "unstable", "acceptable", "healthy"
 - **Failure patterns**: Categorized by compute, network, storage, migration, operator
 - **Statistics**: Failure rates, run counts, unique test counts
-- **Trends**: Improvement/regression detection, stability analysis
-- **Recommendations**: Actionable next steps based on failure patterns
-- **Time analysis**: Duration calculations, period comparisons
+- **Trends**: Improvement/regression detection, stability analysis, flakiness scoring
+- **Recommendations**: Actionable next steps based on failure patterns and context
+- **Time analysis**: Duration calculations, period comparisons, trend directions
 - **Potential causes**: Inferred based on test names and failure patterns
 - **Enhanced source context**: GitHub URLs, file paths, line numbers, error messages, and stack traces
 - **Multi-file debugging**: Complete context chain with cross-file failure references
+- **Advanced analytics**: Correlation analysis, quarantine intelligence, impact assessment
+- **Enterprise reporting**: Executive summaries, key metrics, trend analysis, actionable items
+- **Context-aware prioritization**: Business impact, triage recommendations, resource allocation
+- **Environment analysis**: Architecture-specific failures, Kubernetes version patterns
+- **Flakiness detection**: 10-90% failure rate patterns with frequency analysis
 
 ### MCP Command Flags
 

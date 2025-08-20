@@ -99,6 +99,55 @@ func (s *HealthcheckMCPServer) registerTools(mcpServer *server.MCPServer) {
 		mcp.WithBoolean("include_stack_trace", mcp.Description("Include parsed stack trace information"), mcp.DefaultBool(true)),
 	)
 	mcpServer.AddTool(getFailureSourceContextTool, s.getFailureSourceContext)
+
+	// Tool 7: Analyze failure trends over time
+	analyzeFailureTrendsTool := mcp.NewTool(
+		"analyze_failure_trends",
+		mcp.WithDescription("Analyze failure trends and patterns over time periods"),
+		mcp.WithString("job_name", mcp.Description("Name of the CI job to analyze"), mcp.Required()),
+		mcp.WithString("trend_period", mcp.Description("Time period for trend analysis (e.g., '7d', '14d', '30d')"), mcp.DefaultString("14d")),
+		mcp.WithBoolean("include_flakiness", mcp.Description("Include flakiness analysis"), mcp.DefaultBool(true)),
+	)
+	mcpServer.AddTool(analyzeFailureTrendsTool, s.analyzeFailureTrends)
+
+	// Tool 8: Cross-job failure correlation
+	analyzeFailureCorrelationTool := mcp.NewTool(
+		"analyze_failure_correlation",
+		mcp.WithDescription("Analyze failures across multiple jobs to identify systemic issues"),
+		mcp.WithString("job_pattern", mcp.Description("Job pattern or alias to analyze (e.g., 'compute', 'storage')"), mcp.DefaultString(".*")),
+		mcp.WithString("time_window", mcp.Description("Time window for correlation analysis"), mcp.DefaultString("24h")),
+		mcp.WithBoolean("include_environment_analysis", mcp.Description("Include environment-specific failure analysis"), mcp.DefaultBool(true)),
+	)
+	mcpServer.AddTool(analyzeFailureCorrelationTool, s.analyzeFailureCorrelation)
+
+	// Tool 9: Quarantine intelligence
+	analyzeQuarantineIntelligenceTool := mcp.NewTool(
+		"analyze_quarantine_intelligence",
+		mcp.WithDescription("Provide intelligent analysis of quarantined tests and recommendations"),
+		mcp.WithString("scope", mcp.Description("Analysis scope: 'all', 'job', or specific job name"), mcp.DefaultString("all")),
+		mcp.WithBoolean("include_recommendations", mcp.Description("Include quarantine action recommendations"), mcp.DefaultBool(true)),
+	)
+	mcpServer.AddTool(analyzeQuarantineIntelligenceTool, s.analyzeQuarantineIntelligence)
+
+	// Tool 10: Failure impact assessment
+	assessFailureImpactTool := mcp.NewTool(
+		"assess_failure_impact",
+		mcp.WithDescription("Assess the impact and priority of test failures for triage"),
+		mcp.WithString("failure_data", mcp.Description("JSON failure data from lane or merge commands"), mcp.Required()),
+		mcp.WithString("context", mcp.Description("Context: 'pre-release', 'development', 'production'"), mcp.DefaultString("development")),
+		mcp.WithBoolean("include_triage_recommendations", mcp.Description("Include triage priority recommendations"), mcp.DefaultBool(true)),
+	)
+	mcpServer.AddTool(assessFailureImpactTool, s.assessFailureImpact)
+
+	// Tool 11: Generate failure report
+	generateFailureReportTool := mcp.NewTool(
+		"generate_failure_report",
+		mcp.WithDescription("Generate comprehensive failure analysis report for stakeholders"),
+		mcp.WithString("scope", mcp.Description("Report scope: 'daily', 'weekly', 'release', or specific job"), mcp.DefaultString("daily")),
+		mcp.WithString("format", mcp.Description("Report format: 'summary', 'detailed', 'executive'"), mcp.DefaultString("summary")),
+		mcp.WithBoolean("include_recommendations", mcp.Description("Include actionable recommendations"), mcp.DefaultBool(true)),
+	)
+	mcpServer.AddTool(generateFailureReportTool, s.generateFailureReport)
 }
 
 // analyzeJobLane implements the analyze_job_lane tool
@@ -316,6 +365,136 @@ func (s *HealthcheckMCPServer) getFailureSourceContext(ctx context.Context, requ
 	response := FormatFailureSourceContextForLLM(failureInfo, repoInfo, includeStackTrace)
 
 	jsonResponse, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonResponse)), nil
+}
+
+// analyzeFailureTrends implements the analyze_failure_trends tool
+func (s *HealthcheckMCPServer) analyzeFailureTrends(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	jobName := mcp.ParseString(request, "job_name", "")
+	if jobName == "" {
+		return mcp.NewToolResultError("job_name parameter is required"), nil
+	}
+
+	trendPeriod := mcp.ParseString(request, "trend_period", "14d")
+	includeFlakiness := mcp.ParseBoolean(request, "include_flakiness", true)
+
+	// Parse trend period
+	trendDuration, err := healthcheck.ParseTimePeriod(trendPeriod)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Invalid trend period: %v", err)), nil
+	}
+
+	// Fetch historical data for trend analysis
+	runs, err := healthcheck.FetchJobHistoryWithTimePeriod(jobName, trendDuration, 500) // Larger limit for trend analysis
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to fetch job history: %v", err)), nil
+	}
+
+	// Analyze trends
+	trendAnalysis := analyzeTrendsFromRuns(runs, includeFlakiness)
+	trendAnalysis.JobName = jobName
+	trendAnalysis.TrendPeriod = trendPeriod
+
+	jsonResponse, err := json.MarshalIndent(trendAnalysis, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonResponse)), nil
+}
+
+// analyzeFailureCorrelation implements the analyze_failure_correlation tool
+func (s *HealthcheckMCPServer) analyzeFailureCorrelation(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	jobPattern := mcp.ParseString(request, "job_pattern", ".*")
+	timeWindow := mcp.ParseString(request, "time_window", "24h")
+	includeEnvironmentAnalysis := mcp.ParseBoolean(request, "include_environment_analysis", true)
+
+	// Fetch ci-health results for cross-job analysis
+	results, err := healthcheck.FetchResults(healthcheck.HealthURL)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to fetch ci-health results: %v", err)), nil
+	}
+
+	// Analyze correlation across jobs
+	correlationAnalysis := analyzeFailureCorrelationAcrossJobs(results, jobPattern, timeWindow, includeEnvironmentAnalysis)
+
+	jsonResponse, err := json.MarshalIndent(correlationAnalysis, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonResponse)), nil
+}
+
+// analyzeQuarantineIntelligence implements the analyze_quarantine_intelligence tool
+func (s *HealthcheckMCPServer) analyzeQuarantineIntelligence(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	scope := mcp.ParseString(request, "scope", "all")
+	includeRecommendations := mcp.ParseBoolean(request, "include_recommendations", true)
+
+	// Fetch quarantined tests
+	quarantinedTests, err := healthcheck.FetchQuarantinedTests()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to fetch quarantined tests: %v", err)), nil
+	}
+
+	// Fetch current ci-health data for analysis
+	results, err := healthcheck.FetchResults(healthcheck.HealthURL)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to fetch ci-health results: %v", err)), nil
+	}
+
+	// Analyze quarantine intelligence
+	quarantineAnalysis := analyzeQuarantineEffectiveness(quarantinedTests, results, scope, includeRecommendations)
+
+	jsonResponse, err := json.MarshalIndent(quarantineAnalysis, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonResponse)), nil
+}
+
+// assessFailureImpact implements the assess_failure_impact tool
+func (s *HealthcheckMCPServer) assessFailureImpact(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	failureData := mcp.ParseString(request, "failure_data", "")
+	if failureData == "" {
+		return mcp.NewToolResultError("failure_data parameter is required"), nil
+	}
+
+	context := mcp.ParseString(request, "context", "development")
+	includeTriageRecommendations := mcp.ParseBoolean(request, "include_triage_recommendations", true)
+
+	// Parse the JSON failure data
+	impactAnalysis, err := assessFailureImpactFromJSON(failureData, context, includeTriageRecommendations)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to assess failure impact: %v", err)), nil
+	}
+
+	jsonResponse, err := json.MarshalIndent(impactAnalysis, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonResponse)), nil
+}
+
+// generateFailureReport implements the generate_failure_report tool
+func (s *HealthcheckMCPServer) generateFailureReport(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	scope := mcp.ParseString(request, "scope", "daily")
+	format := mcp.ParseString(request, "format", "summary")
+	includeRecommendations := mcp.ParseBoolean(request, "include_recommendations", true)
+
+	// Generate comprehensive failure report
+	report, err := generateComprehensiveFailureReport(scope, format, includeRecommendations)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to generate failure report: %v", err)), nil
+	}
+
+	jsonResponse, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
 	}

@@ -48,6 +48,11 @@ This enables LLM-powered workflows like:
 			fmt.Fprintf(os.Stderr, "- search_failure_patterns: Find patterns across jobs\n")
 			fmt.Fprintf(os.Stderr, "- compare_time_periods: Compare failure rates over time\n")
 			fmt.Fprintf(os.Stderr, "- get_failure_source_context: Parse junit failures and generate GitHub URLs\n")
+			fmt.Fprintf(os.Stderr, "- analyze_failure_trends: Analyze failure trends and patterns over time periods\n")
+			fmt.Fprintf(os.Stderr, "- analyze_failure_correlation: Analyze failures across multiple jobs to identify systemic issues\n")
+			fmt.Fprintf(os.Stderr, "- analyze_quarantine_intelligence: Provide intelligent analysis of quarantined tests and recommendations\n")
+			fmt.Fprintf(os.Stderr, "- assess_failure_impact: Assess the impact and priority of test failures for triage\n")
+			fmt.Fprintf(os.Stderr, "- generate_failure_report: Generate comprehensive failure analysis report for stakeholders\n")
 			fmt.Fprintf(os.Stderr, "\n")
 		}
 		
