@@ -2,18 +2,16 @@
 
 ## Commit Guidelines
 
-When creating commits for this project, always include a co-authored-by line attributing Claude:
+When creating commits for this project, always include an assisted-by line attributing Claude:
 
 ```
-Co-Authored-By: Claude <noreply@anthropic.com>
+Assisted-By: Claude <noreply@anthropic.com>
 ```
 
-This should be included at the end of all commit messages, along with the standard Claude Code attribution:
+This should be included at the end of all commit messages:
 
 ```
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
+Assisted-By: Claude <noreply@anthropic.com>
 ```
 
 ### Commit Message Format
@@ -37,7 +35,7 @@ go build
 ```
 
 Test different functionality modes:
-- `./healthcheck -j compute` - Filter by job regex
-- `./healthcheck -c` - Count failures
-- `./healthcheck --lane-run` - Group by lane run UUID
-- `./healthcheck -f` - Show failure details
+- `./healthcheck merge -j compute` - Filter by job regex
+- `./healthcheck merge -c` - Count failures
+- `./healthcheck merge --lane-run` - Group by lane run UUID
+- `./healthcheck merge -f` - Show failure details

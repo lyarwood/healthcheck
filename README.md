@@ -5,13 +5,13 @@ A basic command line tool to help summarise CI failures as reported by the [kube
 ## Open a tab for each sig-compute job failure
 
 ```shell
-$ healthcheck -u -j compute | sort | uniq | xargs google-chrome
+$ healthcheck merge -u -j compute | sort | uniq | xargs google-chrome
 ```
 
 ## List only failing test names and count with external tools
 
 ```shell
-$ healthcheck -n | sort | uniq -c | sort -rn
+$ healthcheck merge -n | sort | uniq -c | sort -rn
       3 [sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
       3 [sig-compute] Infrastructure cluster profiler for pprof data aggregation when ClusterProfiler configuration is enabled it should allow subresource access
       2 [virtctl] [crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute] usbredir Should work several times
@@ -50,7 +50,7 @@ $ healthcheck -n | sort | uniq -c | sort -rn
 ## Count and list test failures with job URLs
 
 ```shell
-$ healthcheck -c -j compute
+$ healthcheck merge -c -j compute
 3 [sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
 
  https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15098/pull-kubevirt-e2e-k8s-1.32-sig-compute/1944655730044833792
@@ -77,7 +77,7 @@ $ healthcheck -c -j compute
 ## Count and list test failures with any additional failure context
 
 ```shell
-$ healthcheck -c -f -j compute
+$ healthcheck merge -c -f -j compute
 3 [sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
 
  {{ failure}  Failure tests/pool_test.go:701
