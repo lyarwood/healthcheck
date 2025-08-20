@@ -36,11 +36,28 @@ https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt
 ```
 
 ```shell
-# Filter by time period (lane command only - merge command shows all results)
+# Filter by time period with automatic pagination (finds ALL results within time period)
 $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1h -c
 1	VirtualMachineInstance migration target DomainNotifyServerRestarts should establish a notify server pipe should be resilient to notify server restarts
 
 	https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15455/pull-kubevirt-unit-test-arm64/1958202806657617920
+
+# Analyze longer time periods - automatically paginates to find all results
+$ healthcheck lane pull-kubevirt-unit-test-arm64 --since 2d --summary
+Lane Summary: pull-kubevirt-unit-test-arm64
+===========================================
+
+Time Range:
+  First Run:  2025-08-18 19:03:13 UTC
+  Last Run:   2025-08-20 16:22:12 UTC
+  Duration:   1.9 days
+
+Test Run Statistics:
+  Total Runs:     92
+  Successful:     62
+  Failed:         15
+  Unknown:        15
+  Failure Rate:   16.3%
 ```
 
 ```shell

@@ -207,6 +207,82 @@ func FetchJobHistory(jobName string, limit int) ([]JobRun, error) {
 	return allRuns, nil
 }
 
+// FetchJobHistoryWithTimePeriod fetches job runs within a specific time period, automatically paginating as needed
+func FetchJobHistoryWithTimePeriod(jobName string, timePeriod time.Duration, maxLimit int) ([]JobRun, error) {
+	if timePeriod == 0 {
+		// If no time period specified, fall back to regular limit-based fetching
+		return FetchJobHistory(jobName, maxLimit)
+	}
+
+	var allRuns []JobRun
+	baseURL := fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName)
+	currentURL := baseURL
+	cutoffTime := time.Now().UTC().Add(-timePeriod)
+	
+	for len(allRuns) < maxLimit {
+		// Fetch current page
+		resp, err := http.Get(currentURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch job history: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to fetch job history: status code %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read job history body: %w", err)
+		}
+
+		// Parse this page's job runs
+		pageRuns, nextBuildID, err := parseJobHistoryPage(string(body), jobName)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check each run's timestamp and add if within time period
+		foundOldRuns := false
+		for _, run := range pageRuns {
+			if len(allRuns) >= maxLimit {
+				break
+			}
+
+			// Parse timestamp to check if it's within our time period
+			if run.Timestamp != "" {
+				runTime, err := time.Parse(time.RFC3339, run.Timestamp)
+				if err == nil {
+					if runTime.Before(cutoffTime) {
+						// This run is older than our cutoff, stop pagination
+						foundOldRuns = true
+						break
+					}
+					// Run is within time period, add it
+					allRuns = append(allRuns, run)
+				} else {
+					// If we can't parse timestamp, include it to be safe
+					allRuns = append(allRuns, run)
+				}
+			} else {
+				// If no timestamp, include it to be safe
+				allRuns = append(allRuns, run)
+			}
+		}
+
+		// Stop if we found runs older than our cutoff time or no more pages
+		if foundOldRuns || nextBuildID == "" {
+			break
+		}
+
+		// Prepare URL for next page
+		currentURL = fmt.Sprintf("%s?buildId=%s", baseURL, nextBuildID)
+	}
+
+	return allRuns, nil
+}
+
 // parseJobHistoryPage extracts job run information from a single Prow history HTML page
 func parseJobHistoryPage(htmlContent, jobName string) ([]JobRun, string, error) {
 	var runs []JobRun
