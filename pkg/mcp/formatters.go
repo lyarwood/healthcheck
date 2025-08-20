@@ -166,6 +166,46 @@ type LLMChanges struct {
 	OverallTrend        string   `json:"overall_trend"`
 }
 
+type LLMFailureSourceContext struct {
+	FailureInfo    LLMFailureInfo    `json:"failure_info"`
+	RepositoryInfo LLMRepositoryInfo `json:"repository_info"`
+	SourceContext  []LLMSourceFile   `json:"source_context"`
+	Summary        string            `json:"summary"`
+}
+
+type LLMFailureInfo struct {
+	TestName      string               `json:"test_name"`
+	FailureType   string               `json:"failure_type"`
+	ErrorMessage  string               `json:"error_message"`
+	PrimaryFile   string               `json:"primary_file"`
+	PrimaryLine   int                  `json:"primary_line"`
+	StackTrace    []LLMStackTraceFrame `json:"stack_trace,omitempty"`
+}
+
+type LLMStackTraceFrame struct {
+	Function string `json:"function"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Context  string `json:"context,omitempty"`
+}
+
+type LLMRepositoryInfo struct {
+	Repository string `json:"repository"`
+	Owner      string `json:"owner"`
+	Commit     string `json:"commit"`
+	Branch     string `json:"branch,omitempty"`
+	PullRequest int   `json:"pull_request,omitempty"`
+}
+
+type LLMSourceFile struct {
+	FilePath     string `json:"file_path"`
+	LineNumber   int    `json:"line_number"`
+	GitHubURL    string `json:"github_url"`
+	RawURL       string `json:"raw_url"`
+	Context      string `json:"context"`
+	FileType     string `json:"file_type"`
+}
+
 // formatLaneSummaryForLLM converts lane summary to LLM-optimized format
 func formatLaneSummaryForLLM(jobName string, summary *healthcheck.LaneSummary, includeDetails bool) LLMJobAnalysis {
 	analysis := LLMJobAnalysis{
@@ -686,4 +726,138 @@ func generateTimeComparisonAnalysis(jobName string, failureRateChange float64, n
 
 	return fmt.Sprintf("Job %s is %s with %.1f%% failure rate change. %d new failures, %d resolved failures.",
 		jobName, trend, failureRateChange, newFailures, resolvedFailures)
+}
+
+// formatFailureSourceContextForLLM converts failure source context to LLM-optimized format
+func formatFailureSourceContextForLLM(failureInfo LLMFailureInfo, repoInfo LLMRepositoryInfo, includeStackTrace bool) LLMFailureSourceContext {
+	sourceFiles := make([]LLMSourceFile, 0)
+
+	// Add primary failure file
+	if failureInfo.PrimaryFile != "" && failureInfo.PrimaryLine > 0 {
+		sourceFile := createSourceFileEntry(failureInfo.PrimaryFile, failureInfo.PrimaryLine, repoInfo, "primary failure location")
+		sourceFiles = append(sourceFiles, sourceFile)
+	}
+
+	// Add stack trace files if requested
+	if includeStackTrace {
+		for _, frame := range failureInfo.StackTrace {
+			if frame.File != "" && frame.Line > 0 && !isSystemFile(frame.File) {
+				sourceFile := createSourceFileEntry(frame.File, frame.Line, repoInfo, fmt.Sprintf("stack trace: %s", frame.Function))
+				sourceFiles = append(sourceFiles, sourceFile)
+			}
+		}
+	}
+
+	// Generate summary
+	summary := generateFailureSourceSummary(failureInfo, repoInfo, len(sourceFiles))
+
+	return LLMFailureSourceContext{
+		FailureInfo:    failureInfo,
+		RepositoryInfo: repoInfo,
+		SourceContext:  sourceFiles,
+		Summary:        summary,
+	}
+}
+
+// createSourceFileEntry creates a source file entry with GitHub URLs
+func createSourceFileEntry(filePath string, lineNumber int, repoInfo LLMRepositoryInfo, context string) LLMSourceFile {
+	// Clean file path (remove leading paths like bazel-out, etc.)
+	cleanPath := cleanFilePath(filePath)
+	
+	// Generate GitHub URLs
+	githubURL := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d", 
+		repoInfo.Owner, repoInfo.Repository, repoInfo.Commit, cleanPath, lineNumber)
+	rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", 
+		repoInfo.Owner, repoInfo.Repository, repoInfo.Commit, cleanPath)
+
+	// Determine file type
+	fileType := determineFileType(cleanPath)
+
+	return LLMSourceFile{
+		FilePath:     cleanPath,
+		LineNumber:   lineNumber,
+		GitHubURL:    githubURL,
+		RawURL:       rawURL,
+		Context:      context,
+		FileType:     fileType,
+	}
+}
+
+// cleanFilePath removes bazel-out prefixes and other build artifacts from file paths
+func cleanFilePath(filePath string) string {
+	// Remove bazel-out prefix
+	if strings.Contains(filePath, "bazel-out/") {
+		parts := strings.Split(filePath, "bazel-out/")
+		if len(parts) > 1 {
+			// Look for the next meaningful part after bazel-out
+			remaining := parts[1]
+			// Skip the architecture and build type directories
+			pathParts := strings.Split(remaining, "/")
+			if len(pathParts) > 2 {
+				// Rejoin from the third part onwards, usually starting with "bin" or similar
+				if pathParts[2] == "bin" && len(pathParts) > 3 {
+					return strings.Join(pathParts[3:], "/")
+				}
+			}
+		}
+	}
+	
+	// Handle other known prefixes
+	prefixes := []string{
+		"external/io_bazel_rules_go/stdlib_/src/",
+		"./",
+	}
+	
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(filePath, prefix) {
+			return strings.TrimPrefix(filePath, prefix)
+		}
+	}
+	
+	return filePath
+}
+
+// isSystemFile checks if a file is part of system/runtime code that shouldn't be included
+func isSystemFile(filePath string) bool {
+	systemPrefixes := []string{
+		"runtime/",
+		"external/io_bazel_rules_go/stdlib_/src/runtime/",
+		"/usr/",
+		"/go/",
+	}
+	
+	for _, prefix := range systemPrefixes {
+		if strings.HasPrefix(filePath, prefix) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// determineFileType determines the programming language/file type from extension
+func determineFileType(filePath string) string {
+	if strings.HasSuffix(filePath, ".go") {
+		return "go"
+	}
+	if strings.HasSuffix(filePath, ".yaml") || strings.HasSuffix(filePath, ".yml") {
+		return "yaml"
+	}
+	if strings.HasSuffix(filePath, ".json") {
+		return "json"
+	}
+	if strings.HasSuffix(filePath, ".sh") {
+		return "shell"
+	}
+	if strings.HasSuffix(filePath, ".py") {
+		return "python"
+	}
+	return "text"
+}
+
+// generateFailureSourceSummary creates a human-readable summary
+func generateFailureSourceSummary(failureInfo LLMFailureInfo, repoInfo LLMRepositoryInfo, sourceCount int) string {
+	return fmt.Sprintf("Test '%s' failed with '%s' in %s/%s. Primary failure at %s:%d. %d source context files available for LLM analysis.",
+		failureInfo.TestName, failureInfo.FailureType, repoInfo.Owner, repoInfo.Repository,
+		failureInfo.PrimaryFile, failureInfo.PrimaryLine, sourceCount)
 }

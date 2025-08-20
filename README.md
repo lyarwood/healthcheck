@@ -359,7 +359,7 @@ Available tools:
 
 ### Available MCP Tools
 
-The MCP server provides 5 specialized tools for LLM integration:
+The MCP server provides 6 specialized tools for LLM integration:
 
 #### 1. `analyze_job_lane`
 Analyze recent job runs for a specific CI lane with failure patterns and statistics.
@@ -401,6 +401,14 @@ Compare failure rates between two time periods for a job.
 - `recent_period` (optional): Recent time period (default: "24h")
 - `comparison_period` (optional): Comparison time period (default: "7d")
 
+#### 6. `get_failure_source_context`
+Parse JUnit failure output and generate GitHub URLs for source code context.
+
+**Parameters:**
+- `failure_text` (required): JUnit failure text containing file paths and line numbers
+- `job_url` (required): Job URL to extract repository and commit information
+- `include_stack_trace` (optional): Include parsed stack trace information (default: true)
+
 ### LLM Integration Examples
 
 The MCP server enables powerful AI-assisted workflows:
@@ -413,6 +421,7 @@ The MCP server enables powerful AI-assisted workflows:
 # "Generate a release health report for all SIG areas"
 # "What are the most critical test failures right now?"
 # "Search for timeout-related failures in network tests"
+# "Parse this junit failure and show me the GitHub source code where it failed"
 ```
 
 ### Data Format

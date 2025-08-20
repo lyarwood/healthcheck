@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"healthcheck/pkg/healthcheck"
@@ -282,4 +283,166 @@ func suggestNextSteps(analysis LLMJobAnalysis) []string {
 	}
 	
 	return steps
+}
+
+// parseFailureText extracts failure information from JUnit failure text
+func parseFailureText(failureText string) (LLMFailureInfo, error) {
+	var failureInfo LLMFailureInfo
+	
+	lines := strings.Split(failureText, "\n")
+	
+	// Parse the first line for test name and primary failure location
+	// Example: "Panic pkg/virt-controller/services/template_test.go:2689"
+	firstLine := strings.TrimSpace(lines[0])
+	
+	// Extract failure type and file info
+	if strings.Contains(firstLine, " ") {
+		parts := strings.SplitN(firstLine, " ", 2)
+		if len(parts) == 2 {
+			failureInfo.FailureType = parts[0]
+			
+			// Parse file:line format
+			fileInfo := parts[1]
+			if strings.Contains(fileInfo, ":") {
+				fileParts := strings.Split(fileInfo, ":")
+				if len(fileParts) >= 2 {
+					failureInfo.PrimaryFile = fileParts[0]
+					if lineNum := regexp.MustCompile(`\d+`).FindString(fileParts[1]); lineNum != "" {
+						if line, parseErr := strconv.Atoi(lineNum); parseErr == nil {
+							failureInfo.PrimaryLine = line
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// Extract error message
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Panic:") || strings.HasPrefix(line, "Error:") || strings.HasPrefix(line, "Failed:") {
+			failureInfo.ErrorMessage = strings.TrimPrefix(line, "Panic:")
+			failureInfo.ErrorMessage = strings.TrimPrefix(failureInfo.ErrorMessage, "Error:")
+			failureInfo.ErrorMessage = strings.TrimPrefix(failureInfo.ErrorMessage, "Failed:")
+			failureInfo.ErrorMessage = strings.TrimSpace(failureInfo.ErrorMessage)
+			break
+		}
+	}
+	
+	// Parse stack trace
+	stackStarted := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		if strings.Contains(line, "Full stack:") {
+			stackStarted = true
+			continue
+		}
+		
+		if stackStarted && line != "" {
+			frame := parseStackTraceFrame(line)
+			if frame.File != "" {
+				failureInfo.StackTrace = append(failureInfo.StackTrace, frame)
+			}
+		}
+	}
+	
+	// If no error message found, use the failure type
+	if failureInfo.ErrorMessage == "" {
+		failureInfo.ErrorMessage = failureInfo.FailureType
+	}
+	
+	// Extract test name from file path if not already set
+	if failureInfo.TestName == "" && failureInfo.PrimaryFile != "" {
+		// Extract test name from file path (remove _test.go suffix and path)
+		testFile := failureInfo.PrimaryFile
+		if strings.HasSuffix(testFile, "_test.go") {
+			testFile = strings.TrimSuffix(testFile, "_test.go")
+			pathParts := strings.Split(testFile, "/")
+			failureInfo.TestName = pathParts[len(pathParts)-1] + " test"
+		}
+	}
+	
+	return failureInfo, nil
+}
+
+// parseStackTraceFrame parses a single line of stack trace
+func parseStackTraceFrame(line string) LLMStackTraceFrame {
+	var frame LLMStackTraceFrame
+	
+	// Example: "kubevirt.io/kubevirt/pkg/virt-controller/services.init.func7.6.24.3()"
+	//          "        pkg/virt-controller/services/template_test.go:2695 +0x2f4"
+	
+	if strings.Contains(line, "()") {
+		// Function line
+		funcName := strings.TrimSpace(strings.Replace(line, "()", "", 1))
+		frame.Function = funcName
+	} else if strings.Contains(line, ":") && strings.Contains(line, "+0x") {
+		// File and line number
+		// Remove leading whitespace and extract file:line
+		trimmed := strings.TrimSpace(line)
+		parts := strings.Fields(trimmed)
+		if len(parts) > 0 {
+			fileInfo := parts[0]
+			if strings.Contains(fileInfo, ":") {
+				fileParts := strings.Split(fileInfo, ":")
+				if len(fileParts) >= 2 {
+					frame.File = fileParts[0]
+					if lineNum := regexp.MustCompile(`\d+`).FindString(fileParts[1]); lineNum != "" {
+						if line, parseErr := strconv.Atoi(lineNum); parseErr == nil {
+							frame.Line = line
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return frame
+}
+
+// extractRepositoryInfo extracts repository and commit information from job URL
+func extractRepositoryInfo(jobURL string) (LLMRepositoryInfo, error) {
+	var repoInfo LLMRepositoryInfo
+	
+	// Example URL: https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15472/pull-kubevirt-unit-test-arm64/1958099225396908032
+	
+	// Extract repository from URL path
+	repoPattern := regexp.MustCompile(`/pull/([^/]+)_([^/]+)/(\d+)/`)
+	matches := repoPattern.FindStringSubmatch(jobURL)
+	
+	if len(matches) < 4 {
+		return repoInfo, fmt.Errorf("unable to extract repository information from URL: %s", jobURL)
+	}
+	
+	repoInfo.Owner = matches[1]
+	repoInfo.Repository = matches[2]
+	
+	// Convert pull request number
+	if prNum, err := strconv.Atoi(matches[3]); err == nil {
+		repoInfo.PullRequest = prNum
+	}
+	
+	// For pull requests, we need to fetch the commit hash
+	// For now, we'll use a placeholder - in a real implementation, 
+	// you'd fetch this from the prowjob.json or GitHub API
+	repoInfo.Commit = "main"  // Default fallback
+	
+	// Try to fetch commit from prowjob.json if available
+	if commit := extractCommitFromProwJob(jobURL); commit != "" {
+		repoInfo.Commit = commit
+	}
+	
+	return repoInfo, nil
+}
+
+// extractCommitFromProwJob attempts to extract commit hash from prowjob.json
+func extractCommitFromProwJob(jobURL string) string {
+	// This would fetch the prowjob.json and extract the commit hash
+	// For now, return empty string to use the fallback
+	// In a full implementation, you'd make an HTTP request to:
+	// https://storage.googleapis.com/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15472/pull-kubevirt-unit-test-arm64/1958099225396908032/prowjob.json
+	// and parse the JSON to get the actual commit hash
+	
+	return "" // Placeholder - would implement HTTP fetch and JSON parsing here
 }

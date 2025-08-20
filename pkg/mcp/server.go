@@ -89,6 +89,16 @@ func (s *HealthcheckMCPServer) registerTools(mcpServer *server.MCPServer) {
 		mcp.WithString("comparison_period", mcp.Description("Comparison time period (e.g., '7d', '14d')"), mcp.DefaultString("7d")),
 	)
 	mcpServer.AddTool(compareTimePeriodsool, s.compareTimePeriods)
+
+	// Tool 6: Get failure source context
+	getFailureSourceContextTool := mcp.NewTool(
+		"get_failure_source_context",
+		mcp.WithDescription("Parse junit failure output and generate GitHub URLs for source code context"),
+		mcp.WithString("failure_text", mcp.Description("JUnit failure text containing file paths and line numbers"), mcp.Required()),
+		mcp.WithString("job_url", mcp.Description("Job URL to extract repository and commit information"), mcp.Required()),
+		mcp.WithBoolean("include_stack_trace", mcp.Description("Include parsed stack trace information"), mcp.DefaultBool(true)),
+	)
+	mcpServer.AddTool(getFailureSourceContextTool, s.getFailureSourceContext)
 }
 
 // analyzeJobLane implements the analyze_job_lane tool
@@ -268,6 +278,43 @@ func (s *HealthcheckMCPServer) compareTimePeriods(ctx context.Context, request m
 	// Format comparison response
 	response := formatTimeComparisonForLLM(jobName, recentSummary, comparisonSummary, recentPeriod, comparisonPeriod)
 	
+	jsonResponse, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(string(jsonResponse)), nil
+}
+
+// getFailureSourceContext implements the get_failure_source_context tool
+func (s *HealthcheckMCPServer) getFailureSourceContext(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	failureText := mcp.ParseString(request, "failure_text", "")
+	if failureText == "" {
+		return mcp.NewToolResultError("failure_text parameter is required"), nil
+	}
+
+	jobURL := mcp.ParseString(request, "job_url", "")
+	if jobURL == "" {
+		return mcp.NewToolResultError("job_url parameter is required"), nil
+	}
+
+	includeStackTrace := mcp.ParseBoolean(request, "include_stack_trace", true)
+
+	// Parse failure information
+	failureInfo, err := parseFailureText(failureText)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse failure text: %v", err)), nil
+	}
+
+	// Extract repository and commit information from job URL
+	repoInfo, err := extractRepositoryInfo(jobURL)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to extract repository info: %v", err)), nil
+	}
+
+	// Generate GitHub URLs for source context
+	response := formatFailureSourceContextForLLM(failureInfo, repoInfo, includeStackTrace)
+
 	jsonResponse, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil

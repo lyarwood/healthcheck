@@ -62,12 +62,13 @@ The tool now includes an MCP (Model Context Protocol) server that exposes CI hea
 
 ### MCP Tools Available
 
-The MCP server provides 5 tools:
+The MCP server provides 6 tools:
 1. `analyze_job_lane` - Job failure analysis with patterns
 2. `get_job_failures` - Detailed failure information  
 3. `analyze_merge_failures` - Cross-job failure analysis
 4. `search_failure_patterns` - Pattern search across jobs
 5. `compare_time_periods` - Time-based failure comparison
+6. `get_failure_source_context` - Parse junit failures and generate GitHub URLs
 
 ### Integration Points
 

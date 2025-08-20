@@ -28,6 +28,7 @@ The MCP server provides tools for:
 - Searching for failure patterns across jobs
 - Comparing failure rates between time periods
 - Cross-job analysis using ci-health data
+- Parsing junit failures and generating GitHub URLs for source context
 
 This enables LLM-powered workflows like:
 - "Analyze recent failures in pull-kubevirt-e2e-k8s-1.32-sig-compute"
@@ -46,6 +47,7 @@ This enables LLM-powered workflows like:
 			fmt.Fprintf(os.Stderr, "- analyze_merge_failures: Cross-job failure analysis\n")
 			fmt.Fprintf(os.Stderr, "- search_failure_patterns: Find patterns across jobs\n")
 			fmt.Fprintf(os.Stderr, "- compare_time_periods: Compare failure rates over time\n")
+			fmt.Fprintf(os.Stderr, "- get_failure_source_context: Parse junit failures and generate GitHub URLs\n")
 			fmt.Fprintf(os.Stderr, "\n")
 		}
 		
