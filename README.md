@@ -333,3 +333,154 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1w --summary
 - `--lane-run`: Group failures by lane run UUID
 - `--quarantine`: Highlight quarantined tests
 - `--since, -s`: Filter results by time period (limited to available ci-health data ~48h)
+
+---
+
+## MCP Command - LLM-Assisted CI Analysis
+
+Start a Model Context Protocol (MCP) server that exposes healthcheck functionality to Large Language Models for intelligent CI failure analysis. This enables AI-powered workflows for advanced pattern recognition and automated reporting.
+
+### Starting the MCP Server
+
+```shell
+# Start MCP server with stdio transport (default)
+$ healthcheck mcp
+
+# Enable debug mode to see available tools
+$ healthcheck mcp --debug
+Starting healthcheck MCP server...
+Available tools:
+- analyze_job_lane: Analyze job failures with patterns
+- get_job_failures: Get detailed failure information
+- analyze_merge_failures: Cross-job failure analysis
+- search_failure_patterns: Find patterns across jobs
+- compare_time_periods: Compare failure rates over time
+```
+
+### Available MCP Tools
+
+The MCP server provides 5 specialized tools for LLM integration:
+
+#### 1. `analyze_job_lane`
+Analyze recent job runs for a specific CI lane with failure patterns and statistics.
+
+**Parameters:**
+- `job_name` (required): Name of the CI job to analyze
+- `since` (optional): Time period to analyze (default: "24h")  
+- `include_details` (optional): Include detailed failure information (default: true)
+
+#### 2. `get_job_failures`
+Get detailed failure information for a specific job with stack traces.
+
+**Parameters:**
+- `job_name` (required): Name of the CI job
+- `limit` (optional): Number of recent runs to analyze (default: 10, max: 100)
+- `include_stack_traces` (optional): Include failure stack traces (default: false)
+
+#### 3. `analyze_merge_failures`
+Analyze test failures across all merge-time jobs using ci-health data.
+
+**Parameters:**
+- `job_filter` (optional): Job filter regex or alias (default: ".*")
+- `test_filter` (optional): Test name filter regex (default: ".*")
+- `include_quarantined` (optional): Include quarantined test information (default: true)
+
+#### 4. `search_failure_patterns`
+Search for specific failure patterns across jobs.
+
+**Parameters:**
+- `pattern` (required): Regex pattern to search for in test names or failure messages
+- `job_filter` (optional): Job filter regex or alias (default: ".*")
+- `search_in` (optional): Where to search - "test_names", "failure_messages", or "both" (default: "test_names")
+
+#### 5. `compare_time_periods`
+Compare failure rates between two time periods for a job.
+
+**Parameters:**
+- `job_name` (required): Name of the CI job to analyze
+- `recent_period` (optional): Recent time period (default: "24h")
+- `comparison_period` (optional): Comparison time period (default: "7d")
+
+### LLM Integration Examples
+
+The MCP server enables powerful AI-assisted workflows:
+
+```shell
+# Example prompts you can use with LLM clients:
+# "Analyze recent failures in pull-kubevirt-e2e-k8s-1.32-sig-compute"
+# "Compare this week's failure rate to last week for unit tests"  
+# "Find all migration-related failures across all jobs"
+# "Generate a release health report for all SIG areas"
+# "What are the most critical test failures right now?"
+# "Search for timeout-related failures in network tests"
+```
+
+### Data Format
+
+All MCP tools return structured JSON data optimized for LLM consumption, including:
+
+- **Health status**: "critical", "unhealthy", "unstable", "acceptable", "healthy"
+- **Failure patterns**: Categorized by compute, network, storage, migration, operator
+- **Statistics**: Failure rates, run counts, unique test counts
+- **Trends**: Improvement/regression detection, stability analysis
+- **Recommendations**: Actionable next steps based on failure patterns
+- **Time analysis**: Duration calculations, period comparisons
+- **Potential causes**: Inferred based on test names and failure patterns
+
+### MCP Command Flags
+
+- `--port, -p`: Port to listen on (0 for stdio, default: 0)
+- `--host, -H`: Host to bind to (default: "localhost")  
+- `--stdio, -s`: Use stdio transport (default: true)
+- `--debug, -d`: Enable debug logging to see tool information
+
+### Integration with Claude CLI/Desktop
+
+To use this MCP server with Claude CLI or Claude Desktop, you need to configure it as an MCP server in your settings:
+
+#### Claude CLI Configuration
+
+Add to your `~/.config/claude-cli/mcp_servers.json`:
+
+```json
+{
+  "kubevirt-healthcheck": {
+    "command": "/path/to/healthcheck",
+    "args": ["mcp"],
+    "env": {}
+  }
+}
+```
+
+Then enable it with:
+```shell
+claude mcp install kubevirt-healthcheck
+```
+
+#### Claude Desktop Configuration  
+
+Add to your Claude Desktop MCP settings (typically `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "kubevirt-healthcheck": {
+      "command": "/path/to/healthcheck",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+#### Usage with Claude
+
+Once configured, you can use natural language prompts with Claude:
+
+- **"Analyze recent failures in pull-kubevirt-e2e-k8s-1.32-sig-compute and tell me what's broken"**
+- **"Compare failure rates between this week and last week for unit tests"**
+- **"Generate a comprehensive CI health report for all KubeVirt job categories"**
+- **"Find all timeout-related failures across network tests and suggest fixes"**
+- **"What are the top 3 most critical test failures I should prioritize?"**
+- **"Search for migration failures and group them by potential root cause"**
+
+The MCP server provides Claude with direct access to KubeVirt CI data, enabling sophisticated analysis, pattern recognition, and actionable recommendations that would be difficult to achieve with manual investigation.

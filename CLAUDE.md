@@ -47,3 +47,31 @@ Test different functionality modes:
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --since 24h` - Show failures from last 24 hours
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --summary` - Show concise summary with patterns
 - `./healthcheck merge -j compute --since 2d` - Show compute failures from last 2 days
+- `./healthcheck mcp` - Start MCP server for LLM integration
+- `./healthcheck mcp --debug` - Start MCP server with debug output
+
+## MCP Server Feature
+
+The tool now includes an MCP (Model Context Protocol) server that exposes CI health analysis functionality to Large Language Models. This enables AI-powered workflows for intelligent failure analysis.
+
+### MCP Commands to Test
+
+- `./healthcheck mcp --help` - Show MCP command help
+- `./healthcheck mcp --debug` - Start server and show available tools
+- `timeout 5s ./healthcheck mcp` - Test server startup (will timeout after 5 seconds)
+
+### MCP Tools Available
+
+The MCP server provides 5 tools:
+1. `analyze_job_lane` - Job failure analysis with patterns
+2. `get_job_failures` - Detailed failure information  
+3. `analyze_merge_failures` - Cross-job failure analysis
+4. `search_failure_patterns` - Pattern search across jobs
+5. `compare_time_periods` - Time-based failure comparison
+
+### Integration Points
+
+- All tools reuse existing healthcheck package functionality
+- Data formats are optimized for LLM consumption
+- JSON responses include health status, trends, and recommendations
+- Comprehensive error handling for robust AI integration
