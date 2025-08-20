@@ -70,7 +70,7 @@ The MCP server provides 6 tools:
 3. `analyze_merge_failures` - Cross-job failure analysis
 4. `search_failure_patterns` - Pattern search across jobs
 5. `compare_time_periods` - Time-based failure comparison
-6. `get_failure_source_context` - Parse junit failures and generate GitHub URLs
+6. `get_failure_source_context` - Enhanced junit failure parsing with GitHub URL generation (IMPROVED)
 
 ### Integration Points
 
@@ -78,6 +78,8 @@ The MCP server provides 6 tools:
 - Data formats are optimized for LLM consumption
 - JSON responses include health status, trends, and recommendations
 - Comprehensive error handling for robust AI integration
+- Enhanced failure source context with GitHub URL generation for code inspection
+- Multi-format parsing support for both simple and complex failure text patterns
 
 ## JSON Output Support
 
@@ -118,3 +120,50 @@ Merge output with count mode:
   "failed_tests": {...}
 }
 ```
+
+## Enhanced get_failure_source_context Tool
+
+The get_failure_source_context MCP tool has been significantly enhanced with improved parsing capabilities:
+
+### Enhanced Parsing Features
+
+- **Smart format detection**: Handles both "file:line" and "Type file:line" patterns automatically
+- **Advanced error extraction**: Uses pattern matching for common error types (Panic, Error, Failed, etc.)
+- **Multi-file tracking**: Captures multiple file references within the same failure
+- **Comprehensive stack trace parsing**: Handles both detailed and simple file:line references
+- **Enhanced error message extraction**: Extracts meaningful error messages up to 200 characters
+
+### Testing Commands for Enhanced Parsing
+
+- Test simple format: Use MCP client to send "pkg/file.go:123"
+- Test complex format: Use MCP client to send "Panic pkg/file.go:123\nError: something failed"
+- Test multi-file failures with cross-file references
+- Test error message extraction from complex failure text
+
+### Supported Input Patterns
+
+```
+# Simple file:line format (most common)
+pkg/virt-controller/services/template_test.go:2689
+
+# Complex format with failure type
+Panic pkg/virt-controller/services/template_test.go:2689
+
+# Multi-line with error details
+pkg/file.go:123
+Error: deadline exceeded
+Expected: 5, Got: 3
+
+# Cross-file failures with stack traces
+pkg/file1.go:123
+pkg/file2.go:456
+Full stack: [detailed stack trace]
+```
+
+### Key Improvements Made
+
+- **Public function exports**: ParseFailureText, ExtractRepositoryInfo, FormatFailureSourceContextForLLM are now public
+- **Better pattern matching**: Recognizes bare file:line format (most common in JUnit output)
+- **Multi-line error extraction**: Captures error messages from anywhere in the failure text
+- **Cross-file reference tracking**: Finds all .go: references throughout the failure text
+- **Enhanced stack trace handling**: Supports both detailed (+0x format) and simple file:line references

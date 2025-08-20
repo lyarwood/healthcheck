@@ -301,19 +301,19 @@ func (s *HealthcheckMCPServer) getFailureSourceContext(ctx context.Context, requ
 	includeStackTrace := mcp.ParseBoolean(request, "include_stack_trace", true)
 
 	// Parse failure information
-	failureInfo, err := parseFailureText(failureText)
+	failureInfo, err := ParseFailureText(failureText)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse failure text: %v", err)), nil
 	}
 
 	// Extract repository and commit information from job URL
-	repoInfo, err := extractRepositoryInfo(jobURL)
+	repoInfo, err := ExtractRepositoryInfo(jobURL)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to extract repository info: %v", err)), nil
 	}
 
 	// Generate GitHub URLs for source context
-	response := formatFailureSourceContextForLLM(failureInfo, repoInfo, includeStackTrace)
+	response := FormatFailureSourceContextForLLM(failureInfo, repoInfo, includeStackTrace)
 
 	jsonResponse, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {

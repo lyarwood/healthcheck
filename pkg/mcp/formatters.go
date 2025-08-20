@@ -728,8 +728,8 @@ func generateTimeComparisonAnalysis(jobName string, failureRateChange float64, n
 		jobName, trend, failureRateChange, newFailures, resolvedFailures)
 }
 
-// formatFailureSourceContextForLLM converts failure source context to LLM-optimized format
-func formatFailureSourceContextForLLM(failureInfo LLMFailureInfo, repoInfo LLMRepositoryInfo, includeStackTrace bool) LLMFailureSourceContext {
+// FormatFailureSourceContextForLLM converts failure source context to LLM-optimized format
+func FormatFailureSourceContextForLLM(failureInfo LLMFailureInfo, repoInfo LLMRepositoryInfo, includeStackTrace bool) LLMFailureSourceContext {
 	sourceFiles := make([]LLMSourceFile, 0)
 
 	// Add primary failure file

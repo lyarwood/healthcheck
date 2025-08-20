@@ -285,18 +285,30 @@ func suggestNextSteps(analysis LLMJobAnalysis) []string {
 	return steps
 }
 
-// parseFailureText extracts failure information from JUnit failure text
-func parseFailureText(failureText string) (LLMFailureInfo, error) {
+// ParseFailureText extracts failure information from JUnit failure text
+func ParseFailureText(failureText string) (LLMFailureInfo, error) {
 	var failureInfo LLMFailureInfo
 	
 	lines := strings.Split(failureText, "\n")
 	
-	// Parse the first line for test name and primary failure location
-	// Example: "Panic pkg/virt-controller/services/template_test.go:2689"
+	// Parse the first line for primary failure location
+	// Example: "pkg/virt-controller/services/template_test.go:2689"
 	firstLine := strings.TrimSpace(lines[0])
 	
-	// Extract failure type and file info
-	if strings.Contains(firstLine, " ") {
+	// Check if first line is just a file:line format (most common case)
+	if strings.Contains(firstLine, ":") && !strings.Contains(firstLine, " ") {
+		fileParts := strings.Split(firstLine, ":")
+		if len(fileParts) >= 2 {
+			failureInfo.PrimaryFile = fileParts[0]
+			if lineNum := regexp.MustCompile(`\d+`).FindString(fileParts[1]); lineNum != "" {
+				if line, parseErr := strconv.Atoi(lineNum); parseErr == nil {
+					failureInfo.PrimaryLine = line
+				}
+			}
+		}
+		failureInfo.FailureType = "Test Failure"
+	} else if strings.Contains(firstLine, " ") {
+		// Handle formats like "Panic pkg/file.go:123"
 		parts := strings.SplitN(firstLine, " ", 2)
 		if len(parts) == 2 {
 			failureInfo.FailureType = parts[0]
@@ -317,21 +329,42 @@ func parseFailureText(failureText string) (LLMFailureInfo, error) {
 		}
 	}
 	
-	// Extract error message
-	for _, line := range lines {
+	// Extract error message - look for meaningful error lines
+	var errorLines []string
+	for i, line := range lines {
 		line = strings.TrimSpace(line)
+		
+		// Skip the first line (file:line) and empty lines
+		if i == 0 || line == "" {
+			continue
+		}
+		
+		// Look for common error patterns
 		if strings.HasPrefix(line, "Panic:") || strings.HasPrefix(line, "Error:") || strings.HasPrefix(line, "Failed:") {
-			failureInfo.ErrorMessage = strings.TrimPrefix(line, "Panic:")
-			failureInfo.ErrorMessage = strings.TrimPrefix(failureInfo.ErrorMessage, "Error:")
-			failureInfo.ErrorMessage = strings.TrimPrefix(failureInfo.ErrorMessage, "Failed:")
-			failureInfo.ErrorMessage = strings.TrimSpace(failureInfo.ErrorMessage)
+			errorMessage := strings.TrimPrefix(line, "Panic:")
+			errorMessage = strings.TrimPrefix(errorMessage, "Error:")
+			errorMessage = strings.TrimPrefix(errorMessage, "Failed:")
+			failureInfo.ErrorMessage = strings.TrimSpace(errorMessage)
 			break
+		} else if strings.Contains(line, "error:") || strings.Contains(line, "Error:") || 
+				  strings.Contains(line, "Unexpected") || strings.Contains(line, "Expected") ||
+				  strings.Contains(line, "occurred") || strings.Contains(line, "deadline exceeded") {
+			errorLines = append(errorLines, line)
 		}
 	}
 	
-	// Parse stack trace
+	// If no specific error prefix found, use collected error lines
+	if failureInfo.ErrorMessage == "" && len(errorLines) > 0 {
+		failureInfo.ErrorMessage = strings.Join(errorLines, " ")
+		// Limit length for readability
+		if len(failureInfo.ErrorMessage) > 200 {
+			failureInfo.ErrorMessage = failureInfo.ErrorMessage[:200] + "..."
+		}
+	}
+	
+	// Parse stack trace and additional file references
 	stackStarted := false
-	for _, line := range lines {
+	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		
 		if strings.Contains(line, "Full stack:") {
@@ -342,6 +375,12 @@ func parseFailureText(failureText string) (LLMFailureInfo, error) {
 		if stackStarted && line != "" {
 			frame := parseStackTraceFrame(line)
 			if frame.File != "" {
+				failureInfo.StackTrace = append(failureInfo.StackTrace, frame)
+			}
+		} else if i > 0 && strings.Contains(line, ".go:") && !strings.Contains(line, "Unexpected") {
+			// Look for additional file:line references in the failure text
+			frame := parseStackTraceFrame(line)
+			if frame.File != "" && (frame.File != failureInfo.PrimaryFile || frame.Line != failureInfo.PrimaryLine) {
 				failureInfo.StackTrace = append(failureInfo.StackTrace, frame)
 			}
 		}
@@ -377,15 +416,31 @@ func parseStackTraceFrame(line string) LLMStackTraceFrame {
 		// Function line
 		funcName := strings.TrimSpace(strings.Replace(line, "()", "", 1))
 		frame.Function = funcName
-	} else if strings.Contains(line, ":") && strings.Contains(line, "+0x") {
-		// File and line number
-		// Remove leading whitespace and extract file:line
+	} else if strings.Contains(line, ":") {
+		// Handle both detailed stack traces and simple file:line references
 		trimmed := strings.TrimSpace(line)
-		parts := strings.Fields(trimmed)
-		if len(parts) > 0 {
-			fileInfo := parts[0]
-			if strings.Contains(fileInfo, ":") {
-				fileParts := strings.Split(fileInfo, ":")
+		
+		// For detailed stack traces with "+0x": "pkg/file.go:123 +0x2f4"
+		if strings.Contains(trimmed, "+0x") {
+			parts := strings.Fields(trimmed)
+			if len(parts) > 0 {
+				fileInfo := parts[0]
+				if strings.Contains(fileInfo, ":") {
+					fileParts := strings.Split(fileInfo, ":")
+					if len(fileParts) >= 2 {
+						frame.File = fileParts[0]
+						if lineNum := regexp.MustCompile(`\d+`).FindString(fileParts[1]); lineNum != "" {
+							if line, parseErr := strconv.Atoi(lineNum); parseErr == nil {
+								frame.Line = line
+							}
+						}
+					}
+				}
+			}
+		} else if strings.Contains(trimmed, ".go:") {
+			// For simple file:line references: "pkg/file.go:123"
+			if strings.Contains(trimmed, ":") {
+				fileParts := strings.Split(trimmed, ":")
 				if len(fileParts) >= 2 {
 					frame.File = fileParts[0]
 					if lineNum := regexp.MustCompile(`\d+`).FindString(fileParts[1]); lineNum != "" {
@@ -401,8 +456,8 @@ func parseStackTraceFrame(line string) LLMStackTraceFrame {
 	return frame
 }
 
-// extractRepositoryInfo extracts repository and commit information from job URL
-func extractRepositoryInfo(jobURL string) (LLMRepositoryInfo, error) {
+// ExtractRepositoryInfo extracts repository and commit information from job URL
+func ExtractRepositoryInfo(jobURL string) (LLMRepositoryInfo, error) {
 	var repoInfo LLMRepositoryInfo
 	
 	// Example URL: https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15472/pull-kubevirt-unit-test-arm64/1958099225396908032

@@ -477,12 +477,25 @@ Compare failure rates between two time periods for a job.
 - `comparison_period` (optional): Comparison time period (default: "7d")
 
 #### 6. `get_failure_source_context`
-Parse JUnit failure output and generate GitHub URLs for source code context.
+Parse JUnit failure output and generate GitHub URLs for source code context with enhanced parsing capabilities.
+
+**Enhanced Features:**
+- **Smart format detection**: Automatically handles both simple "file:line" format and complex "Type file:line" patterns
+- **Comprehensive error extraction**: Extracts meaningful error messages using pattern matching for common error types
+- **Multi-file tracking**: Captures multiple file references even within the same failure for complete debugging context
+- **Advanced stack trace parsing**: Handles both detailed stack traces and simple file:line references
+- **GitHub URL generation**: Provides actionable GitHub URLs that LLMs can fetch for source code analysis
 
 **Parameters:**
 - `failure_text` (required): JUnit failure text containing file paths and line numbers
 - `job_url` (required): Job URL to extract repository and commit information
 - `include_stack_trace` (optional): Include parsed stack trace information (default: true)
+
+**Supported Input Formats:**
+- Simple format: `pkg/virt-controller/services/template_test.go:2689`
+- Complex format: `Panic pkg/virt-controller/services/template_test.go:2689`
+- Multi-line errors with file references throughout the failure text
+- Cross-file failures with complete context chain for debugging
 
 ### LLM Integration Examples
 
@@ -496,7 +509,13 @@ The MCP server enables powerful AI-assisted workflows:
 # "Generate a release health report for all SIG areas"
 # "What are the most critical test failures right now?"
 # "Search for timeout-related failures in network tests"
+
+# Enhanced failure source context analysis (NEW):
 # "Parse this junit failure and show me the GitHub source code where it failed"
+# "Extract all file references from this test failure and generate GitHub URLs"
+# "Analyze this multi-file failure and provide the complete debugging context"
+# "Given this failure text, fetch the source code and explain what might be wrong"
+# "Cross-reference this failure with the actual source code to suggest a fix"
 ```
 
 ### Data Format
@@ -510,6 +529,8 @@ All MCP tools return structured JSON data optimized for LLM consumption, includi
 - **Recommendations**: Actionable next steps based on failure patterns
 - **Time analysis**: Duration calculations, period comparisons
 - **Potential causes**: Inferred based on test names and failure patterns
+- **Enhanced source context**: GitHub URLs, file paths, line numbers, error messages, and stack traces
+- **Multi-file debugging**: Complete context chain with cross-file failure references
 
 ### MCP Command Flags
 
