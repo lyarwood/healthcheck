@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 )
 
 func FormatLaneRunOutput(laneRunFailures map[string][]Testcase, displayFailures bool) {
@@ -118,6 +119,21 @@ func FormatLaneSummary(jobName string, summary *LaneSummary) {
 	fmt.Printf("Lane Summary: %s\n", jobName)
 	fmt.Printf("=" + strings.Repeat("=", len(jobName)+13) + "\n\n")
 
+	// Time range information
+	if summary.FirstRunTime != "" && summary.LastRunTime != "" {
+		firstTime := formatTimestamp(summary.FirstRunTime)
+		lastTime := formatTimestamp(summary.LastRunTime)
+		duration := calculateDuration(summary.FirstRunTime, summary.LastRunTime)
+		
+		fmt.Printf("Time Range:\n")
+		fmt.Printf("  First Run:  %s\n", firstTime)
+		fmt.Printf("  Last Run:   %s\n", lastTime)
+		if duration != "" {
+			fmt.Printf("  Duration:   %s\n", duration)
+		}
+		fmt.Println()
+	}
+
 	// Overall statistics
 	fmt.Printf("Test Run Statistics:\n")
 	fmt.Printf("  Total Runs:     %d\n", summary.TotalRuns)
@@ -192,4 +208,52 @@ func truncateTestName(name string, maxLen int) string {
 		return name
 	}
 	return name[:maxLen-3] + "..."
+}
+
+// formatTimestamp converts RFC3339 timestamp to a readable format
+func formatTimestamp(timestamp string) string {
+	if timestamp == "" {
+		return "Unknown"
+	}
+	
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return timestamp // Return original if parsing fails
+	}
+	
+	// Format as: "2025-08-20 16:22:12 UTC"
+	return t.UTC().Format("2006-01-02 15:04:05 UTC")
+}
+
+// calculateDuration calculates and formats the duration between first and last run
+func calculateDuration(firstTime, lastTime string) string {
+	if firstTime == "" || lastTime == "" {
+		return ""
+	}
+	
+	first, err := time.Parse(time.RFC3339, firstTime)
+	if err != nil {
+		return ""
+	}
+	
+	last, err := time.Parse(time.RFC3339, lastTime)
+	if err != nil {
+		return ""
+	}
+	
+	duration := last.Sub(first)
+	
+	// Format duration in a human-readable way
+	if duration == 0 {
+		return "Single run"
+	}
+	
+	if duration < time.Hour {
+		return fmt.Sprintf("%.0f minutes", duration.Minutes())
+	} else if duration < 24*time.Hour {
+		return fmt.Sprintf("%.1f hours", duration.Hours())
+	} else {
+		days := duration.Hours() / 24
+		return fmt.Sprintf("%.1f days", days)
+	}
 }

@@ -60,6 +60,8 @@ type LaneSummary struct {
 	AllFailures   []Testcase  // All test failures across all runs
 	FailureRate   float64     // Percentage of runs that failed
 	TopFailures   []TestFailurePattern // Most common failure patterns
+	FirstRunTime  string      // Timestamp of earliest run
+	LastRunTime   string      // Timestamp of latest run
 }
 
 type TestFailurePattern struct {

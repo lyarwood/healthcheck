@@ -231,6 +231,9 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 	// Analyze failure patterns
 	summary.TopFailures = analyzeFailurePatterns(summary.TestFailures, len(summary.AllFailures))
 
+	// Calculate time range
+	summary.FirstRunTime, summary.LastRunTime = calculateTimeRange(runs)
+
 	return summary, nil
 }
 
@@ -316,4 +319,37 @@ func categorizeTest(testName string) string {
 	}
 
 	return "general"
+}
+
+// calculateTimeRange finds the earliest and latest run timestamps
+func calculateTimeRange(runs []JobRun) (string, string) {
+	if len(runs) == 0 {
+		return "", ""
+	}
+
+	var firstTime, lastTime time.Time
+	var firstTimeStr, lastTimeStr string
+	
+	for _, run := range runs {
+		if run.Timestamp == "" {
+			continue
+		}
+		
+		t, err := time.Parse(time.RFC3339, run.Timestamp)
+		if err != nil {
+			continue
+		}
+
+		if firstTime.IsZero() || t.Before(firstTime) {
+			firstTime = t
+			firstTimeStr = run.Timestamp
+		}
+		
+		if lastTime.IsZero() || t.After(lastTime) {
+			lastTime = t
+			lastTimeStr = run.Timestamp
+		}
+	}
+
+	return firstTimeStr, lastTimeStr
 }

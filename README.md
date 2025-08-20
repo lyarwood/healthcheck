@@ -49,6 +49,11 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --limit 5 --summary
 Lane Summary: pull-kubevirt-unit-test-arm64
 ===========================================
 
+Time Range:
+  First Run:  2025-08-20 14:32:15 UTC
+  Last Run:   2025-08-20 16:22:12 UTC
+  Duration:   1.8 hours
+
 Test Run Statistics:
   Total Runs:     5
   Successful:     0
