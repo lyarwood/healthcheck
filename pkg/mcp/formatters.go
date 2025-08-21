@@ -31,13 +31,16 @@ type LLMTimeRange struct {
 }
 
 type LLMRunStatistics struct {
-	TotalRuns     int     `json:"total_runs"`
-	Successful    int     `json:"successful"`
-	Failed        int     `json:"failed"`
-	Unknown       int     `json:"unknown"`
-	FailureRate   float64 `json:"failure_rate_percent"`
-	TotalFailures int     `json:"total_test_failures"`
-	UniqueTests   int     `json:"unique_failing_tests"`
+	TotalRuns                 int     `json:"total_runs"`
+	Successful                int     `json:"successful"`
+	Failed                    int     `json:"failed"`
+	Aborted                   int     `json:"aborted"`
+	Error                     int     `json:"error"`
+	Unknown                   int     `json:"unknown"`
+	FailureRate               float64 `json:"failure_rate_percent"`
+	InfrastructureFailureRate float64 `json:"infrastructure_failure_rate_percent"`
+	TotalFailures             int     `json:"total_test_failures"`
+	UniqueTests               int     `json:"unique_failing_tests"`
 }
 
 type LLMFailurePattern struct {
@@ -48,7 +51,9 @@ type LLMFailurePattern struct {
 	FirstSeen        string   `json:"first_seen,omitempty"`
 	LastSeen         string   `json:"last_seen,omitempty"`
 	SampleStackTrace string   `json:"sample_stack_trace,omitempty"`
+	BuildLogContext  string   `json:"build_log_context,omitempty"`
 	PotentialCauses  []string `json:"potential_causes,omitempty"`
+	IsInfrastructure bool     `json:"is_infrastructure"`
 }
 
 type LLMTrends struct {
@@ -71,12 +76,14 @@ type LLMJobFailures struct {
 }
 
 type LLMJobRun struct {
-	ID            string             `json:"run_id"`
-	URL           string             `json:"url"`
-	Status        string             `json:"status"`
-	Timestamp     string             `json:"timestamp"`
-	FailureCount  int                `json:"failure_count"`
-	Failures      []LLMTestFailure   `json:"failures,omitempty"`
+	ID              string             `json:"run_id"`
+	URL             string             `json:"url"`
+	Status          string             `json:"status"`
+	Timestamp       string             `json:"timestamp"`
+	FailureCount    int                `json:"failure_count"`
+	Failures        []LLMTestFailure   `json:"failures,omitempty"`
+	BuildLogContext string             `json:"build_log_context,omitempty"`
+	IsInfrastructure bool              `json:"is_infrastructure"`
 }
 
 type LLMTestFailure struct {
@@ -388,13 +395,16 @@ func formatLaneSummaryForLLM(jobName string, summary *healthcheck.LaneSummary, i
 			Period:   inferPeriod(summary.FirstRunTime, summary.LastRunTime),
 		},
 		Statistics: LLMRunStatistics{
-			TotalRuns:     summary.TotalRuns,
-			Successful:    summary.SuccessfulRuns,
-			Failed:        summary.FailedRuns,
-			Unknown:       summary.TotalRuns - summary.SuccessfulRuns - summary.FailedRuns,
-			FailureRate:   summary.FailureRate,
-			TotalFailures: len(summary.AllFailures),
-			UniqueTests:   len(summary.TestFailures),
+			TotalRuns:                 summary.TotalRuns,
+			Successful:                summary.SuccessfulRuns,
+			Failed:                    summary.FailedRuns,
+			Aborted:                   summary.AbortedRuns,
+			Error:                     summary.ErrorRuns,
+			Unknown:                   summary.UnknownRuns,
+			FailureRate:               summary.FailureRate,
+			InfrastructureFailureRate: summary.InfrastructureFailureRate,
+			TotalFailures:             len(summary.AllFailures),
+			UniqueTests:               len(summary.TestFailures),
 		},
 		HealthStatus: determineHealthStatus(summary.FailureRate),
 		Trends: LLMTrends{
@@ -411,12 +421,27 @@ func formatLaneSummaryForLLM(jobName string, summary *healthcheck.LaneSummary, i
 		analysis.TopFailures = make([]LLMFailurePattern, 0, len(summary.TopFailures))
 		for _, failure := range summary.TopFailures {
 			pattern := LLMFailurePattern{
-				TestName:        failure.TestName,
-				FailureCount:    failure.Count,
-				Percentage:      failure.Percentage,
-				Category:        failure.Category,
-				PotentialCauses: inferPotentialCauses(failure.TestName),
+				TestName:         failure.TestName,
+				FailureCount:     failure.Count,
+				Percentage:       failure.Percentage,
+				Category:         failure.Category,
+				PotentialCauses:  inferPotentialCauses(failure.TestName),
+				IsInfrastructure: isInfrastructureFailure(failure.Category),
 			}
+			
+			// For infrastructure failures, try to fetch build log context
+			if pattern.IsInfrastructure && includeDetails {
+				// Find a representative job URL for this failure type
+				for _, testFailure := range summary.AllFailures {
+					if testFailure.Name == failure.TestName && testFailure.URL != "" {
+						if buildLog, err := healthcheck.FetchBuildLogContext(testFailure.URL); err == nil {
+							pattern.BuildLogContext = buildLog
+						}
+						break // Only fetch for one representative failure
+					}
+				}
+			}
+			
 			analysis.TopFailures = append(analysis.TopFailures, pattern)
 		}
 
@@ -470,12 +495,20 @@ func formatJobFailuresForLLM(jobName string, runs []healthcheck.JobRun, includeS
 		}
 
 		llmRun := LLMJobRun{
-			ID:           run.ID,
-			URL:          run.URL,
-			Status:       run.Status,
-			Timestamp:    run.Timestamp,
-			FailureCount: len(run.Failures),
-			Failures:     failures,
+			ID:              run.ID,
+			URL:             run.URL,
+			Status:          run.Status,
+			Timestamp:       run.Timestamp,
+			FailureCount:    len(run.Failures),
+			Failures:        failures,
+			IsInfrastructure: isInfrastructureRun(run),
+		}
+		
+		// For infrastructure failures, fetch build log context
+		if llmRun.IsInfrastructure && includeStackTraces {
+			if buildLog, err := healthcheck.FetchBuildLogContext(run.URL); err == nil {
+				llmRun.BuildLogContext = buildLog
+			}
 		}
 		
 		llmRuns = append(llmRuns, llmRun)
@@ -1187,4 +1220,15 @@ func generateFailureSourceSummary(failureInfo LLMFailureInfo, repoInfo LLMReposi
 	}
 	
 	return summary
+}
+
+// isInfrastructureFailure determines if a failure category represents infrastructure issues
+func isInfrastructureFailure(category string) bool {
+	return category == "infrastructure" || category == "infra-timeout" || category == "infra-error"
+}
+
+// isInfrastructureRun determines if a job run represents an infrastructure failure
+func isInfrastructureRun(run healthcheck.JobRun) bool {
+	// Infrastructure failure if the job failed without test failures (i.e., build/environment issues)
+	return (run.Status == "FAILURE" || run.Status == "ABORTED" || run.Status == "ERROR") && len(run.Failures) == 0
 }

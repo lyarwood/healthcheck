@@ -483,6 +483,105 @@ func fetchProwJobStatus(prowjobURL string) (string, error) {
 	return "", fmt.Errorf("could not find status.state in prowjob.json")
 }
 
+// FetchBuildLogContext fetches relevant build log context for infrastructure failures
+func FetchBuildLogContext(jobURL string) (string, error) {
+	// Convert prow URL to direct Google Storage URL for build-log.txt
+	buildLogURL := strings.Replace(jobURL, "prow.ci.kubevirt.io/view/gs", "storage.googleapis.com", 1)
+	if !strings.HasSuffix(buildLogURL, "/") {
+		buildLogURL += "/"
+	}
+	buildLogURL += "build-log.txt"
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return nil
+		},
+	}
+
+	resp, err := client.Get(buildLogURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch build log: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("build log not found")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to fetch build log: status code %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build log: %w", err)
+	}
+
+	// Extract relevant context from build log (last 50 lines for failures)
+	lines := strings.Split(string(body), "\n")
+	
+	// Look for error patterns and extract context
+	context := extractBuildLogContext(lines)
+	
+	// Limit to reasonable size for LLM consumption (max 2000 characters)
+	if len(context) > 2000 {
+		context = context[len(context)-2000:]
+		// Find the start of a complete line to avoid truncating mid-line
+		if idx := strings.Index(context, "\n"); idx != -1 {
+			context = context[idx+1:]
+		}
+	}
+
+	return context, nil
+}
+
+// extractBuildLogContext extracts relevant context from build log lines
+func extractBuildLogContext(lines []string) string {
+	var contextLines []string
+	
+	// Look for error indicators and failure patterns
+	errorPatterns := []string{
+		"error", "Error", "ERROR",
+		"failed", "Failed", "FAILED", 
+		"panic", "Panic", "PANIC",
+		"timeout", "Timeout", "TIMEOUT",
+		"aborted", "Aborted", "ABORTED",
+		"killed", "Killed", "KILLED",
+		"exit code", "Exit code", "exit status",
+		"Another command holds the client lock",
+		"Waiting for it to complete",
+		"deadline exceeded",
+		"context deadline exceeded",
+		"connection refused",
+		"no space left on device",
+	}
+	
+	// Start from the end and work backwards to get the most recent context
+	for i := len(lines) - 1; i >= 0 && len(contextLines) < 50; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		
+		// Include lines with error patterns or the last N lines
+		shouldInclude := len(contextLines) < 30 // Always include last 30 lines
+		for _, pattern := range errorPatterns {
+			if strings.Contains(line, pattern) {
+				shouldInclude = true
+				break
+			}
+		}
+		
+		if shouldInclude {
+			// Prepend to maintain chronological order
+			contextLines = append([]string{line}, contextLines...)
+		}
+	}
+	
+	return strings.Join(contextLines, "\n")
+}
+
 // ParseTimePeriod parses time period strings like "24h", "2d", "1w" into a time.Duration
 func ParseTimePeriod(period string) (time.Duration, error) {
 	if period == "" {
