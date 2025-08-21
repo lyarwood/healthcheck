@@ -11,7 +11,6 @@ import (
 )
 
 var (
-	jobRegex             string
 	testRegex            string
 	countFailures        bool
 	displayOnlyURLs      bool
@@ -25,9 +24,11 @@ var (
 )
 
 var mergeCmd = &cobra.Command{
-	Use:   "merge",
+	Use:   "merge [job-name-or-alias]",
 	Short: "Parse KubeVirt CI health data and report failed tests",
-	RunE: func(_ *cobra.Command, _ []string) error {
+	Args:  cobra.ExactArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		jobName := args[0]
 
 		// Parse time period if provided
 		timePeriod, err := healthcheck.ParseTimePeriod(sincePeriod)
@@ -36,12 +37,12 @@ var mergeCmd = &cobra.Command{
 		}
 
 		// Resolve job regex aliases
-		if _, ok := healthcheck.JobRegexAliases[jobRegex]; ok {
-			jobRegex = healthcheck.JobRegexAliases[jobRegex]
+		if _, ok := healthcheck.JobRegexAliases[jobName]; ok {
+			jobName = healthcheck.JobRegexAliases[jobName]
 		}
 
 		// Compile regexes
-		jobRegexCompiled, err := regexp.Compile(jobRegex)
+		jobRegexCompiled, err := regexp.Compile(jobName)
 		if err != nil {
 			return fmt.Errorf("invalid job name regex provided: %w", err)
 		}
@@ -98,7 +99,6 @@ var mergeCmd = &cobra.Command{
 }
 
 func init() {
-	mergeCmd.Flags().StringVarP(&jobRegex, "job", "j", "main", "Job name regex")
 	mergeCmd.Flags().StringVarP(&testRegex, "test", "t", "", "Test name regex")
 	mergeCmd.Flags().BoolVarP(&countFailures, "count", "c", false, "Count specific test failures")
 	mergeCmd.Flags().BoolVarP(&displayOnlyURLs, "url", "u", false, "Display only failed job URLs")

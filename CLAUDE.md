@@ -35,11 +35,12 @@ go build
 ```
 
 Test different functionality modes:
-- `./healthcheck merge -j compute` - Filter by job regex
-- `./healthcheck merge -c` - Count failures
-- `./healthcheck merge --lane-run` - Group by lane run UUID
-- `./healthcheck merge -f` - Show failure details
-- `./healthcheck merge --output json` - Output structured JSON data
+- `./healthcheck merge compute` - Filter by job name or alias
+- `./healthcheck merge main -c` - Count failures for main branch jobs
+- `./healthcheck merge compute --lane-run` - Group by lane run UUID
+- `./healthcheck merge compute -f` - Show failure details
+- `./healthcheck merge compute --summary` - Show concise summary with patterns
+- `./healthcheck merge network --output json` - Output structured JSON data
 - `./healthcheck lane pull-kubevirt-unit-test-arm64` - Analyze recent runs for a specific job
 - `./healthcheck lane pull-kubevirt-e2e-k8s-1.32-sig-compute --limit 5` - Analyze 5 recent runs
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 -c` - Count failures in recent runs
@@ -48,7 +49,7 @@ Test different functionality modes:
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --since 24h` - Show failures from last 24 hours
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --summary` - Show concise summary with patterns
 - `./healthcheck lane pull-kubevirt-unit-test-arm64 --output json` - Output structured JSON data for machine processing
-- `./healthcheck merge -j compute --since 2d` - Show compute failures from last 2 days
+- `./healthcheck merge compute --since 2d` - Show compute failures from last 2 days
 - `./healthcheck mcp` - Start MCP server for LLM integration
 - `./healthcheck mcp --debug` - Start MCP server with debug output
 
@@ -102,11 +103,11 @@ Both lane and merge commands now support `--output json` for structured data out
 
 ### JSON Output Commands to Test
 
-- `./healthcheck merge -j compute --output json` - Export compute failures as JSON
+- `./healthcheck merge compute --output json` - Export compute failures as JSON
 - `./healthcheck lane job-name --limit 10 -c --output json` - Export lane failure counts as JSON
-- `./healthcheck merge -u --output json | jq -r '.urls[]'` - Extract URLs with jq
+- `./healthcheck merge main -u --output json | jq -r '.urls[]'` - Extract URLs with jq
 - `./healthcheck lane job-name --summary --output json` - Export lane summary for trending
-- `./healthcheck merge --lane-run --output json` - Export grouped failures for analysis
+- `./healthcheck merge compute --lane-run --output json` - Export grouped failures for analysis
 
 ### JSON Structure Examples
 
@@ -222,7 +223,7 @@ The MCP server has been expanded with 5 powerful new tools providing enterprise-
 - **Priority Assignment**: Urgent/normal/low with detailed reasoning
 - **JSON Integration**: Works with --output json data from lane/merge commands
 
-**Testing**: Export JSON data with `./healthcheck merge --output json > data.json` then use in assess_failure_impact
+**Testing**: Export JSON data with `./healthcheck merge compute --output json > data.json` then use in assess_failure_impact
 
 ### Tool 11: generate_failure_report
 **Purpose**: Comprehensive stakeholder reporting with executive summaries
@@ -261,7 +262,7 @@ These tools provide **753+ lines of new functionality** with:
 # LLM: "Analyze quarantine effectiveness and recommend optimizations"
 
 # Impact assessment workflow
-./healthcheck merge -j compute --output json > failures.json
+./healthcheck merge compute --output json > failures.json
 # LLM: "Assess business impact of these failures for production release triage"
 
 # Executive reporting workflow

@@ -204,12 +204,12 @@ Analyze test failures across all merge-time jobs using pre-computed data from th
 ### Job Filtering
 
 ```shell
-# Filter by job regex patterns
-$ healthcheck merge -j compute                    # sig-compute jobs
-$ healthcheck merge -j "sig-compute.*arm64"       # ARM64 compute jobs
-$ healthcheck merge -j network                    # sig-network jobs
-$ healthcheck merge -j "1.6"                      # release-1.6 jobs
-$ healthcheck merge -j main                       # main branch jobs
+# Filter by job name or alias (now uses positional argument)
+$ healthcheck merge compute                       # sig-compute jobs
+$ healthcheck merge "sig-compute.*arm64"          # ARM64 compute jobs (custom regex)
+$ healthcheck merge network                       # sig-network jobs
+$ healthcheck merge "1.6"                         # release-1.6 jobs
+$ healthcheck merge main                          # main branch jobs
 
 # Available job aliases:
 # - main: main branch jobs
@@ -223,7 +223,7 @@ $ healthcheck merge -j main                       # main branch jobs
 
 ```shell
 # Count failures by test name
-$ healthcheck merge -c -j compute
+$ healthcheck merge compute -c
 3	[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
 
 	https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15098/pull-kubevirt-e2e-k8s-1.32-sig-compute/1944655730044833792
@@ -235,7 +235,7 @@ $ healthcheck merge -c -j compute
 	https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15110/pull-kubevirt-e2e-k8s-1.32-sig-compute/1943363976574275584
 
 # Show only test names for external processing
-$ healthcheck merge -n -j compute | head -5
+$ healthcheck merge compute -n | head -5
 [sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
 [sig-compute] Infrastructure cluster profiler for pprof data aggregation when ClusterProfiler configuration is enabled it should allow subresource access
 [virtctl] [crit:medium][vendor:cnv-qe@redhat.com][level:component][sig-compute] usbredir Should work several times
@@ -243,13 +243,13 @@ $ healthcheck merge -n -j compute | head -5
 [sig-compute] [rfe_id:1177][crit:medium] VirtualMachine with paused vmi [test_id:3229]should gracefully handle being started again
 
 # Show only URLs for browser opening
-$ healthcheck merge -u -j compute | head -3
+$ healthcheck merge compute -u | head -3
 https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15098/pull-kubevirt-e2e-k8s-1.32-sig-compute/1944655730044833792
 https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15182/pull-kubevirt-e2e-k8s-1.31-sig-compute/1945105449749581824
 https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15122/pull-kubevirt-e2e-k8s-1.33-sig-compute/1943094557549793280
 
 # Show failure context and stack traces
-$ healthcheck merge -c -f -j compute
+$ healthcheck merge compute -c -f
 3	[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
 
 	Failure tests/pool_test.go:701
@@ -262,7 +262,7 @@ $ healthcheck merge -c -f -j compute
 	https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15098/pull-kubevirt-e2e-k8s-1.32-sig-compute/1944655730044833792
 
 # Output structured JSON data for machine processing
-$ healthcheck merge -j compute --output json
+$ healthcheck merge compute --output json
 {
   "failed_tests": {
     "[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates": [
@@ -281,7 +281,7 @@ $ healthcheck merge -j compute --output json
 }
 
 # JSON output with count mode
-$ healthcheck merge -j compute -c --output json
+$ healthcheck merge compute -c --output json
 {
   "test_failure_counts": {
     "[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates": 3,
@@ -295,20 +295,20 @@ $ healthcheck merge -j compute -c --output json
 
 ```shell
 # Group by lane run UUID for failure correlation
-$ healthcheck merge --lane-run -j compute
+$ healthcheck merge compute --lane-run
 Lane Run 1944655730044833792 (3 failures)
 
 	[sig-compute]VirtualMachinePool should respect maxUnavailable strategy during updates
 	https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15098/pull-kubevirt-e2e-k8s-1.32-sig-compute/1944655730044833792
 
 # Highlight quarantined tests
-$ healthcheck merge -c -j compute --quarantine
+$ healthcheck merge compute -c --quarantine
 2	[QUARANTINED] [sig-compute] should include VMI infos for a running VM
 
 	https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15098/pull-kubevirt-e2e-k8s-1.32-sig-compute/1944655730044833792
 
 # Time filtering (limited to available ci-health data - typically last ~48 hours)
-$ healthcheck merge -j compute --since 2d       # Filter by time period
+$ healthcheck merge compute --since 2d       # Filter by time period
 ```
 
 ---
@@ -319,13 +319,13 @@ $ healthcheck merge -j compute --since 2d       # Filter by time period
 
 ```shell
 # Quick overview of current failures across all jobs (ci-health data)
-$ healthcheck merge -c -j compute | head -10
+$ healthcheck merge compute -c | head -10
 
 # Deep dive into a specific failing job with historical context (live Prow data)
 $ healthcheck lane pull-kubevirt-e2e-k8s-1.32-sig-compute --since 24h --summary
 
 # Open all failure URLs in browser tabs
-$ healthcheck merge -u -j compute | sort | uniq | xargs google-chrome
+$ healthcheck merge compute -u | sort | uniq | xargs google-chrome
 ```
 
 ### Trend Analysis
@@ -346,7 +346,7 @@ $ healthcheck merge -n | sort | uniq -c | sort -rn | head -10
 $ healthcheck merge -n | grep -i "migration"
 
 # Get failure context for debugging
-$ healthcheck merge -f -j compute | grep -A5 -B5 "timeout"
+$ healthcheck merge compute -f | grep -A5 -B5 "timeout"
 
 # Analyze quarantined tests
 $ healthcheck merge --quarantine -c
@@ -356,7 +356,7 @@ $ healthcheck merge --quarantine -c
 
 ```shell
 # Export failure data as JSON for further processing
-$ healthcheck merge -j compute --output json > compute_failures.json
+$ healthcheck merge compute --output json > compute_failures.json
 
 # Export lane analysis as JSON for trending tools
 $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 7d --summary --output json > lane_trend.json
@@ -365,7 +365,7 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 7d --summary --output j
 $ healthcheck merge -c --output json | jq '.test_failure_counts | to_entries[] | select(.value > 5)'
 
 # Export specific failure URLs for automated issue creation
-$ healthcheck merge -j storage -u --output json | jq -r '.urls[]'
+$ healthcheck merge storage -u --output json | jq -r '.urls[]'
 
 # Get test names for automated quarantine decisions
 $ healthcheck lane pull-kubevirt-e2e-k8s-1.32-sig-compute --since 3d -c --output json | jq -r '.test_failures | keys[]'
@@ -398,7 +398,7 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1w --summary
 
 ### Merge Command Flags (CI-Health Data)
 
-- `--job, -j`: Filter by job regex or alias (compute, network, storage, main, 1.6, 1.5, 1.4)
+- `[job-name-or-alias]`: Required positional argument - job regex or alias (compute, network, storage, main, 1.6, 1.5, 1.4)
 - `--test, -t`: Filter by test name regex
 - `--count, -c`: Count specific test failures
 - `--url, -u`: Display only failure URLs
@@ -407,6 +407,7 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1w --summary
 - `--lane-run`: Group failures by lane run UUID
 - `--quarantine`: Highlight quarantined tests
 - `--since, -s`: Filter results by time period (limited to available ci-health data ~48h)
+- `--summary`: Display a concise summary of failures and patterns
 - `--output, -o`: Output format - "text" (default) or "json" for structured data
 
 ---
