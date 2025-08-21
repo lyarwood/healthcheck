@@ -353,7 +353,31 @@ func fetchJobArtifacts(jobRun *JobRun) error {
 		artifactsURL += "/"
 	}
 	
-	// Try different possible junit file locations
+	// First, fetch the actual job status from prowjob.json
+	prowjobURL := artifactsURL + "prowjob.json"
+	actualStatus, err := fetchProwJobStatus(prowjobURL)
+	if err == nil && actualStatus != "" {
+		// Use the actual prowjob status
+		switch actualStatus {
+		case "success":
+			jobRun.Status = "SUCCESS"
+		case "failure":
+			jobRun.Status = "FAILURE"
+		case "aborted":
+			jobRun.Status = "ABORTED"
+		case "error":
+			jobRun.Status = "ERROR"
+		case "pending", "triggered":
+			jobRun.Status = "PENDING"
+		default:
+			jobRun.Status = "UNKNOWN"
+		}
+	} else {
+		// Fallback to junit-based status detection if prowjob.json unavailable
+		jobRun.Status = "UNKNOWN"
+	}
+	
+	// Try different possible junit file locations to get test failures
 	junitPaths := []string{
 		"artifacts/junit/junit.unittests.xml",  // Unit tests
 		"artifacts/junit.functest.xml",         // Functional tests
@@ -372,19 +396,10 @@ func fetchJobArtifacts(jobRun *JobRun) error {
 					jobRun.Failures = append(jobRun.Failures, testcase)
 				}
 			}
-			
-			// Determine job status
-			if len(jobRun.Failures) > 0 {
-				jobRun.Status = "FAILURE"
-			} else {
-				jobRun.Status = "SUCCESS"
-			}
-			return nil
+			break // Found junit file, stop looking
 		}
 	}
 
-	// If no junit file found, check if job failed for other reasons
-	jobRun.Status = "UNKNOWN"
 	return nil
 }
 
@@ -422,6 +437,50 @@ func fetchTestSuiteFromURL(url string) (*Testsuite, error) {
 	}
 
 	return nil, fmt.Errorf("failed to unmarshal junit XML from %s", url)
+}
+
+// fetchProwJobStatus fetches the job status from prowjob.json
+func fetchProwJobStatus(prowjobURL string) (string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return nil
+		},
+	}
+
+	resp, err := client.Get(prowjobURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch %s: %w", prowjobURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("prowjob.json not found")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to fetch %s: status code %d", prowjobURL, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s body: %w", prowjobURL, err)
+	}
+
+	// Parse the prowjob.json to extract the status.state field
+	var prowjob map[string]interface{}
+	if err := json.Unmarshal(body, &prowjob); err != nil {
+		return "", fmt.Errorf("failed to unmarshal prowjob.json: %w", err)
+	}
+
+	// Extract status.state
+	if status, ok := prowjob["status"].(map[string]interface{}); ok {
+		if state, ok := status["state"].(string); ok {
+			return state, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find status.state in prowjob.json")
 }
 
 // ParseTimePeriod parses time period strings like "24h", "2d", "1w" into a time.Duration
