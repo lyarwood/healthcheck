@@ -57,7 +57,7 @@ func FormatCountedOutput(failedTests map[string][]Testcase, displayFailures bool
 		}
 
 		for _, test := range failedTests[name] {
-			if displayFailures {
+			if displayFailures && test.Failure != nil {
 				fmt.Printf("\t%s\n\n", *test.Failure)
 			}
 			fmt.Printf("\t%s\n\n", test.URL)
