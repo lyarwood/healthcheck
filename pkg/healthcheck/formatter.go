@@ -257,3 +257,112 @@ func calculateDuration(firstTime, lastTime string) string {
 		return fmt.Sprintf("%.1f days", days)
 	}
 }
+
+// FormatMergeSummary displays a concise summary of merge command results
+func FormatMergeSummary(result *ProcessorResult) {
+	summary := GenerateMergeSummary(result)
+	
+	fmt.Printf("Merge Summary\n")
+	fmt.Printf("=============\n\n")
+
+	// Overall statistics
+	fmt.Printf("Test Failure Statistics:\n")
+	fmt.Printf("  Total Failures:    %d\n", summary.TotalFailures)
+	fmt.Printf("  Unique Tests:       %d\n", summary.UniqueTests)
+	if summary.UniqueTests > 0 {
+		avgFailures := float64(summary.TotalFailures) / float64(summary.UniqueTests)
+		fmt.Printf("  Avg per Test:       %.1f\n", avgFailures)
+	}
+	fmt.Println()
+
+	// Category breakdown
+	if len(summary.CategoryBreakdown) > 0 {
+		fmt.Printf("Failure Categories:\n")
+		for category, count := range summary.CategoryBreakdown {
+			percentage := float64(count) / float64(summary.TotalFailures) * 100
+			fmt.Printf("  %-10s: %d (%.1f%%)\n", category, count, percentage)
+		}
+		fmt.Println()
+	}
+
+	// Top failing tests
+	if len(summary.TopFailures) > 0 {
+		fmt.Printf("Most Frequent Failures:\n")
+		for i, pattern := range summary.TopFailures {
+			if i >= 5 { // Show only top 5
+				break
+			}
+			fmt.Printf("  %d. [%s] %s (%d failures, %.1f%%)\n", 
+				i+1, pattern.Category, truncateTestName(pattern.TestName, 60), 
+				pattern.Count, pattern.Percentage)
+		}
+		fmt.Println()
+	}
+
+	// Top affected jobs
+	if len(summary.JobBreakdown) > 0 {
+		fmt.Printf("Most Affected Jobs:\n")
+		
+		// Convert to sortable slice
+		type jobCount struct {
+			name  string
+			count int
+		}
+		var jobs []jobCount
+		for jobName, count := range summary.JobBreakdown {
+			jobs = append(jobs, jobCount{name: jobName, count: count})
+		}
+		
+		// Sort by count (descending)
+		for i := 0; i < len(jobs)-1; i++ {
+			for j := i + 1; j < len(jobs); j++ {
+				if jobs[j].count > jobs[i].count {
+					jobs[i], jobs[j] = jobs[j], jobs[i]
+				}
+			}
+		}
+		
+		// Show top 5 jobs
+		for i, job := range jobs {
+			if i >= 5 {
+				break
+			}
+			percentage := float64(job.count) / float64(summary.TotalFailures) * 100
+			fmt.Printf("  %d. %s (%d failures, %.1f%%)\n", 
+				i+1, truncateTestName(job.name, 50), job.count, percentage)
+		}
+		fmt.Println()
+	}
+
+	// Pattern insights
+	fmt.Printf("Pattern Analysis:\n")
+	if summary.TotalFailures == 0 {
+		fmt.Printf("  🎉 No test failures detected!\n")
+	} else if len(summary.TopFailures) > 0 {
+		topFailure := summary.TopFailures[0]
+		if topFailure.Percentage > 50 {
+			fmt.Printf("  🎯 Single dominant failure pattern (%s)\n", topFailure.Category)
+		} else if len(summary.TopFailures) >= 2 && summary.TopFailures[1].Percentage > 25 {
+			fmt.Printf("  📊 Multiple significant failure patterns\n")
+		} else {
+			fmt.Printf("  🔀 Diverse failure patterns - no clear dominant issue\n")
+		}
+		
+		// Category analysis
+		maxCategory := ""
+		maxCount := 0
+		for category, count := range summary.CategoryBreakdown {
+			if count > maxCount {
+				maxCount = count
+				maxCategory = category
+			}
+		}
+		
+		if maxCount > 0 {
+			percentage := float64(maxCount) / float64(summary.TotalFailures) * 100
+			if percentage > 60 {
+				fmt.Printf("  🔍 Focus area: %s category (%.1f%% of failures)\n", maxCategory, percentage)
+			}
+		}
+	}
+}

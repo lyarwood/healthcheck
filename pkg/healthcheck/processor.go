@@ -30,6 +30,7 @@ type ProcessorConfig struct {
 	CheckQuarantine      bool
 	TimePeriod           time.Duration
 	SuppressOutput       bool // Suppress all immediate output for JSON formatting
+	Summary              bool
 }
 
 type ProcessorResult struct {
@@ -365,4 +366,62 @@ func calculateTimeRange(runs []JobRun) (string, string) {
 	}
 
 	return firstTimeStr, lastTimeStr
+}
+
+// MergeSummary contains aggregate statistics for merge command results
+type MergeSummary struct {
+	TotalTests       int                     `json:"total_tests"`
+	TotalFailures    int                     `json:"total_failures"`
+	UniqueTests      int                     `json:"unique_tests"`
+	TopFailures      []TestFailurePattern   `json:"top_failures"`
+	CategoryBreakdown map[string]int        `json:"category_breakdown"`
+	JobBreakdown     map[string]int         `json:"job_breakdown"`
+}
+
+// GenerateMergeSummary creates a summary from ProcessorResult
+func GenerateMergeSummary(result *ProcessorResult) *MergeSummary {
+	summary := &MergeSummary{
+		UniqueTests:       len(result.FailedTests),
+		CategoryBreakdown: make(map[string]int),
+		JobBreakdown:      make(map[string]int),
+	}
+	
+	// Count total failures and analyze patterns
+	testFailureCounts := make(map[string]int)
+	
+	for testName, testcases := range result.FailedTests {
+		summary.TotalFailures += len(testcases)
+		testFailureCounts[testName] = len(testcases)
+		
+		// Categorize failures
+		category := categorizeTest(testName)
+		summary.CategoryBreakdown[category] += len(testcases)
+		
+		// Extract job information from URLs
+		for _, testcase := range testcases {
+			jobName := extractJobNameFromURL(testcase.URL)
+			if jobName != "" {
+				summary.JobBreakdown[jobName]++
+			}
+		}
+	}
+	
+	summary.TotalTests = summary.TotalFailures
+	
+	// Generate top failure patterns
+	summary.TopFailures = analyzeFailurePatterns(testFailureCounts, summary.TotalFailures)
+	
+	return summary
+}
+
+// extractJobNameFromURL extracts job name from a Prow URL
+func extractJobNameFromURL(url string) string {
+	// Extract job name from URL like: https://prow.ci.kubevirt.io//view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15434/pull-kubevirt-e2e-arm64/1955736656627634176
+	parts := strings.Split(url, "/")
+	for i, part := range parts {
+		if part == "pr-logs" && i+3 < len(parts) {
+			return parts[i+3] // Job name should be 3 positions after "pr-logs"
+		}
+	}
+	return ""
 }

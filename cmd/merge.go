@@ -21,6 +21,7 @@ var (
 	checkQuarantine      bool
 	sincePeriod          string
 	outputFormat         string
+	summary              bool
 )
 
 var mergeCmd = &cobra.Command{
@@ -68,6 +69,7 @@ var mergeCmd = &cobra.Command{
 			CheckQuarantine:      checkQuarantine,
 			TimePeriod:           timePeriod,
 			SuppressOutput:       outputFormat == "json", // Suppress output for JSON formatting
+			Summary:              summary,
 		}
 
 		// Process failures
@@ -80,7 +82,9 @@ var mergeCmd = &cobra.Command{
 		if outputFormat == "json" {
 			return outputMergeJSON(result, config)
 		} else {
-			if groupByLaneRun {
+			if summary {
+				healthcheck.FormatMergeSummary(result)
+			} else if groupByLaneRun {
 				healthcheck.FormatLaneRunOutput(result.LaneRunFailures, displayFailures)
 			} else if countFailures {
 				healthcheck.FormatCountedOutput(result.FailedTests, displayFailures)
@@ -104,6 +108,7 @@ func init() {
 	mergeCmd.Flags().BoolVarP(&checkQuarantine, "quarantine", "q", false, "Check and highlight quarantined tests")
 	mergeCmd.Flags().StringVarP(&sincePeriod, "since", "s", "", "Limit results to given time period (e.g., 24h, 2d, 1w)")
 	mergeCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text or json")
+	mergeCmd.Flags().BoolVar(&summary, "summary", false, "Display a concise summary of failures and patterns")
 
 	rootCmd.AddCommand(mergeCmd)
 }
@@ -148,6 +153,13 @@ func outputMergeJSON(result *healthcheck.ProcessorResult, config healthcheck.Pro
 		output = map[string]interface{}{
 			"test_failure_counts": testCounts,
 			"failed_tests":        result.FailedTests,
+		}
+	} else if config.Summary {
+		// Generate summary statistics
+		summary := healthcheck.GenerateMergeSummary(result)
+		output = map[string]interface{}{
+			"summary":       summary,
+			"failed_tests":  result.FailedTests,
 		}
 	} else {
 		// Default: all failed tests with details
