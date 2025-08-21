@@ -167,10 +167,12 @@ type LLMChanges struct {
 }
 
 type LLMFailureSourceContext struct {
-	FailureInfo    LLMFailureInfo    `json:"failure_info"`
-	RepositoryInfo LLMRepositoryInfo `json:"repository_info"`
-	SourceContext  []LLMSourceFile   `json:"source_context"`
-	Summary        string            `json:"summary"`
+	FailureInfo      LLMFailureInfo       `json:"failure_info"`
+	RepositoryInfo   LLMRepositoryInfo    `json:"repository_info"`
+	SourceContext    []LLMSourceFile      `json:"source_context"`
+	Summary          string               `json:"summary"`
+	CommitContext    LLMCommitContext     `json:"commit_context"`
+	LocalCodeWarning string               `json:"local_code_warning"`
 }
 
 type LLMFailureInfo struct {
@@ -190,11 +192,26 @@ type LLMStackTraceFrame struct {
 }
 
 type LLMRepositoryInfo struct {
-	Repository string `json:"repository"`
-	Owner      string `json:"owner"`
-	Commit     string `json:"commit"`
-	Branch     string `json:"branch,omitempty"`
-	PullRequest int   `json:"pull_request,omitempty"`
+	Repository    string `json:"repository"`
+	Owner         string `json:"owner"`
+	Commit        string `json:"commit"`
+	Branch        string `json:"branch,omitempty"`
+	PullRequest   int    `json:"pull_request,omitempty"`
+	PRInfo        LLMPullRequestInfo `json:"pr_info,omitempty"`
+}
+
+type LLMPullRequestInfo struct {
+	Number         int    `json:"number"`
+	Author         string `json:"author"`
+	AuthorLink     string `json:"author_link"`
+	Title          string `json:"title"`
+	HeadRef        string `json:"head_ref"`
+	HeadRepo       string `json:"head_repo"`
+	HeadRepoOwner  string `json:"head_repo_owner"`
+	PRLink         string `json:"pr_link"`
+	CommitLink     string `json:"commit_link"`
+	ForkRemoteURL  string `json:"fork_remote_url"`
+	IsFromFork     bool   `json:"is_from_fork"`
 }
 
 type LLMSourceFile struct {
@@ -204,6 +221,24 @@ type LLMSourceFile struct {
 	RawURL       string `json:"raw_url"`
 	Context      string `json:"context"`
 	FileType     string `json:"file_type"`
+}
+
+type LLMCommitContext struct {
+	CommitHash         string   `json:"commit_hash"`
+	IsExactCommit      bool     `json:"is_exact_commit"`
+	CheckoutCommand    string   `json:"checkout_command"`
+	CommitSource       string   `json:"commit_source"`
+	Reliability        string   `json:"reliability"`
+	PRCommands         LLMPRCommands `json:"pr_commands,omitempty"`
+}
+
+type LLMPRCommands struct {
+	AddRemoteCommand     string `json:"add_remote_command"`
+	FetchPRCommand       string `json:"fetch_pr_command"`
+	CheckoutPRCommand    string `json:"checkout_pr_command"`
+	CheckoutCommitCommand string `json:"checkout_commit_command"`
+	FullSequence         []string `json:"full_sequence"`
+	CleanupCommands      []string `json:"cleanup_commands"`
 }
 
 // New data structures for extended MCP tools
@@ -682,6 +717,133 @@ func formatTimeComparisonForLLM(jobName string, recent, comparison *healthcheck.
 	}
 }
 
+// generateCommitContext creates structured commit context information
+func generateCommitContext(repoInfo LLMRepositoryInfo) LLMCommitContext {
+	context := LLMCommitContext{
+		CommitHash:    repoInfo.Commit,
+		IsExactCommit: false,
+		CommitSource:  "unknown",
+		Reliability:   "low",
+	}
+	
+	if repoInfo.Commit != "" && repoInfo.Commit != "main" {
+		context.IsExactCommit = true
+		context.CheckoutCommand = fmt.Sprintf("git checkout %s", repoInfo.Commit)
+		context.Reliability = "high"
+		
+		// Determine commit source based on length and format
+		if len(repoInfo.Commit) == 40 && regexp.MustCompile(`^[a-f0-9]+$`).MatchString(repoInfo.Commit) {
+			context.CommitSource = "prowjob_or_buildlog"
+			context.Reliability = "high"
+		} else if len(repoInfo.Commit) >= 7 {
+			context.CommitSource = "extracted_hash"
+			context.Reliability = "medium"
+		}
+		
+		// Generate PR-specific commands if this is from a pull request
+		if repoInfo.PullRequest > 0 && repoInfo.PRInfo.Number > 0 {
+			context.PRCommands = generatePRCommands(repoInfo)
+		}
+	} else if repoInfo.Commit == "main" {
+		context.CommitSource = "fallback_main"
+		context.CheckoutCommand = "git checkout main  # WARNING: This may not be the exact failing commit"
+		context.Reliability = "low"
+	}
+	
+	return context
+}
+
+// generatePRCommands creates git commands for fetching and checking out PR changes
+func generatePRCommands(repoInfo LLMRepositoryInfo) LLMPRCommands {
+	commands := LLMPRCommands{}
+	
+	if repoInfo.PRInfo.IsFromFork {
+		// Commands for forks
+		remoteName := fmt.Sprintf("%s-fork", repoInfo.PRInfo.Author)
+		commands.AddRemoteCommand = fmt.Sprintf("git remote add %s %s", remoteName, repoInfo.PRInfo.ForkRemoteURL)
+		commands.FetchPRCommand = fmt.Sprintf("git fetch %s %s", remoteName, repoInfo.PRInfo.HeadRef)
+		commands.CheckoutPRCommand = fmt.Sprintf("git checkout -b pr-%d %s/%s", 
+			repoInfo.PRInfo.Number, remoteName, repoInfo.PRInfo.HeadRef)
+		commands.CheckoutCommitCommand = fmt.Sprintf("git checkout %s", repoInfo.Commit)
+		
+		commands.FullSequence = []string{
+			"# Fetch the PR from the fork repository",
+			commands.AddRemoteCommand,
+			commands.FetchPRCommand,
+			commands.CheckoutPRCommand,
+			"# Optional: Checkout the specific failing commit",
+			commands.CheckoutCommitCommand,
+		}
+		
+		commands.CleanupCommands = []string{
+			fmt.Sprintf("git branch -D pr-%d", repoInfo.PRInfo.Number),
+			fmt.Sprintf("git remote remove %s", remoteName),
+			"git checkout main",
+		}
+	} else {
+		// Commands for same repository PRs
+		commands.FetchPRCommand = fmt.Sprintf("git fetch origin pull/%d/head:pr-%d", 
+			repoInfo.PRInfo.Number, repoInfo.PRInfo.Number)
+		commands.CheckoutPRCommand = fmt.Sprintf("git checkout pr-%d", repoInfo.PRInfo.Number)
+		commands.CheckoutCommitCommand = fmt.Sprintf("git checkout %s", repoInfo.Commit)
+		
+		commands.FullSequence = []string{
+			"# Fetch the PR from origin",
+			commands.FetchPRCommand,
+			commands.CheckoutPRCommand,
+			"# Optional: Checkout the specific failing commit",
+			commands.CheckoutCommitCommand,
+		}
+		
+		commands.CleanupCommands = []string{
+			fmt.Sprintf("git branch -D pr-%d", repoInfo.PRInfo.Number),
+			"git checkout main",
+		}
+	}
+	
+	return commands
+}
+
+// generateLocalCodeWarning creates warning text about local vs remote code differences
+func generateLocalCodeWarning(repoInfo LLMRepositoryInfo) string {
+	if repoInfo.Commit == "" || repoInfo.Commit == "main" {
+		return "⚠️  CRITICAL: No exact commit hash available. The failure occurred at an unknown commit. " +
+			"Local code analysis may be completely different from the failing code. " +
+			"GitHub URLs point to the main branch which may have changed significantly."
+	}
+	
+	warning := "⚠️  LOCAL CODE DIFFERS: Your local working directory likely contains different code than what failed in CI. "
+	warning += fmt.Sprintf("The failure occurred at commit %s. ", repoInfo.Commit)
+	
+	if repoInfo.PullRequest > 0 && repoInfo.PRInfo.Number > 0 {
+		warning += fmt.Sprintf("This was from Pull Request #%d", repoInfo.PullRequest)
+		
+		if repoInfo.PRInfo.Title != "" {
+			warning += fmt.Sprintf(" (\"%s\")", repoInfo.PRInfo.Title)
+		}
+		
+		if repoInfo.PRInfo.Author != "" {
+			warning += fmt.Sprintf(" by %s", repoInfo.PRInfo.Author)
+		}
+		warning += ". "
+		
+		if repoInfo.PRInfo.IsFromFork {
+			warning += fmt.Sprintf("⚠️  FORK WARNING: This PR is from a fork repository (%s/%s). ", 
+				repoInfo.PRInfo.HeadRepoOwner, repoInfo.PRInfo.HeadRepo)
+			warning += "You'll need to add the fork as a remote to access the failing code. "
+			warning += "Use the PR commands provided in the commit context for proper setup. "
+		} else {
+			warning += "Use the PR fetch commands to get the exact failing code from the pull request. "
+		}
+	} else {
+		warning += "To review the exact failing code, checkout this commit. "
+	}
+	
+	warning += "Always verify you're looking at the correct code version when analyzing failures."
+	
+	return warning
+}
+
 // Helper functions
 
 func calculateHumanDuration(start, end string) string {
@@ -886,12 +1048,18 @@ func FormatFailureSourceContextForLLM(failureInfo LLMFailureInfo, repoInfo LLMRe
 
 	// Generate summary
 	summary := generateFailureSourceSummary(failureInfo, repoInfo, len(sourceFiles))
+	
+	// Generate commit context and warnings
+	commitContext := generateCommitContext(repoInfo)
+	localCodeWarning := generateLocalCodeWarning(repoInfo)
 
 	return LLMFailureSourceContext{
-		FailureInfo:    failureInfo,
-		RepositoryInfo: repoInfo,
-		SourceContext:  sourceFiles,
-		Summary:        summary,
+		FailureInfo:      failureInfo,
+		RepositoryInfo:   repoInfo,
+		SourceContext:    sourceFiles,
+		Summary:          summary,
+		CommitContext:    commitContext,
+		LocalCodeWarning: localCodeWarning,
 	}
 }
 
@@ -993,7 +1161,30 @@ func determineFileType(filePath string) string {
 
 // generateFailureSourceSummary creates a human-readable summary
 func generateFailureSourceSummary(failureInfo LLMFailureInfo, repoInfo LLMRepositoryInfo, sourceCount int) string {
-	return fmt.Sprintf("Test '%s' failed with '%s' in %s/%s. Primary failure at %s:%d. %d source context files available for LLM analysis.",
+	summary := fmt.Sprintf("Test '%s' failed with '%s' in %s/%s. Primary failure at %s:%d. %d source context files available for LLM analysis.",
 		failureInfo.TestName, failureInfo.FailureType, repoInfo.Owner, repoInfo.Repository,
 		failureInfo.PrimaryFile, failureInfo.PrimaryLine, sourceCount)
+	
+	// Add commit information and warnings
+	if repoInfo.Commit != "" && repoInfo.Commit != "main" {
+		summary += fmt.Sprintf("\n\n🔍 COMMIT CONTEXT: This failure occurred at commit %s", repoInfo.Commit)
+		
+		// Add warning about local vs remote differences
+		summary += "\n\n⚠️  IMPORTANT: The source URLs point to the specific commit where this failure occurred. "
+		summary += "Your local working directory may have different code. To review the exact code that failed:\n"
+		summary += fmt.Sprintf("   git checkout %s\n", repoInfo.Commit)
+		summary += "   # Review the failure context\n"
+		summary += "   git checkout -  # Return to your original branch\n"
+		
+		// Add additional context for pull requests
+		if repoInfo.PullRequest > 0 {
+			summary += fmt.Sprintf("\n💡 This failure was from Pull Request #%d. The commit %s may not be on the main branch.",
+				repoInfo.PullRequest, repoInfo.Commit)
+		}
+	} else if repoInfo.Commit == "main" {
+		summary += "\n\n⚠️  NOTE: Could not determine the exact commit hash for this failure. Links point to the main branch, "
+		summary += "which may have changed since the failure occurred. The actual failing code may be different."
+	}
+	
+	return summary
 }

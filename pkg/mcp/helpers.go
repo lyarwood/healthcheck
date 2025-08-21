@@ -1,7 +1,10 @@
 package mcp
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -480,14 +483,22 @@ func ExtractRepositoryInfo(jobURL string) (LLMRepositoryInfo, error) {
 		repoInfo.PullRequest = prNum
 	}
 	
-	// For pull requests, we need to fetch the commit hash
-	// For now, we'll use a placeholder - in a real implementation, 
-	// you'd fetch this from the prowjob.json or GitHub API
+	// For pull requests, we need to fetch the commit hash and PR information
 	repoInfo.Commit = "main"  // Default fallback
 	
-	// Try to fetch commit from prowjob.json if available
-	if commit := extractCommitFromProwJob(jobURL); commit != "" {
-		repoInfo.Commit = commit
+	// Try to fetch commit and PR info from prowjob.json if available
+	if gsPattern := regexp.MustCompile(`/view/gs/(.+)$`); gsPattern.MatchString(jobURL) {
+		gsMatches := gsPattern.FindStringSubmatch(jobURL)
+		if len(gsMatches) >= 2 {
+			prowjobURL := fmt.Sprintf("https://storage.googleapis.com/%s/prowjob.json", gsMatches[1])
+			prowjobInfo := fetchProwjobInfo(prowjobURL)
+			
+			if prowjobInfo.CommitHash != "" {
+				repoInfo.Commit = prowjobInfo.CommitHash
+				repoInfo.PRInfo = prowjobInfo.PRInfo
+				repoInfo.Branch = prowjobInfo.PRInfo.HeadRef
+			}
+		}
 	}
 	
 	return repoInfo, nil
@@ -495,13 +506,173 @@ func ExtractRepositoryInfo(jobURL string) (LLMRepositoryInfo, error) {
 
 // extractCommitFromProwJob attempts to extract commit hash from prowjob.json
 func extractCommitFromProwJob(jobURL string) string {
-	// This would fetch the prowjob.json and extract the commit hash
-	// For now, return empty string to use the fallback
-	// In a full implementation, you'd make an HTTP request to:
-	// https://storage.googleapis.com/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15472/pull-kubevirt-unit-test-arm64/1958099225396908032/prowjob.json
-	// and parse the JSON to get the actual commit hash
+	// Convert job URL to prowjob.json URL
+	// Example: https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15472/pull-kubevirt-unit-test-arm64/1958099225396908032
+	// Becomes: https://storage.googleapis.com/kubevirt-prow/pr-logs/pull/kubevirt_kubevirt/15472/pull-kubevirt-unit-test-arm64/1958099225396908032/prowjob.json
 	
-	return "" // Placeholder - would implement HTTP fetch and JSON parsing here
+	// Extract the gs path from the prow URL
+	gsPattern := regexp.MustCompile(`/view/gs/(.+)$`)
+	matches := gsPattern.FindStringSubmatch(jobURL)
+	
+	if len(matches) < 2 {
+		return "" // Could not extract gs path
+	}
+	
+	// Construct prowjob.json URL
+	prowjobURL := fmt.Sprintf("https://storage.googleapis.com/%s/prowjob.json", matches[1])
+	
+	// Try to fetch and parse the prowjob.json
+	commit := fetchCommitFromProwjobJSON(prowjobURL)
+	if commit != "" {
+		return commit
+	}
+	
+	// Fallback: try to extract from artifacts/junit XML or build-log.txt
+	buildLogURL := fmt.Sprintf("https://storage.googleapis.com/%s/build-log.txt", matches[1])
+	commit = extractCommitFromBuildLog(buildLogURL)
+	
+	return commit
+}
+
+// ProwjobInfo contains extracted information from prowjob.json
+type ProwjobInfo struct {
+	CommitHash string
+	PRInfo     LLMPullRequestInfo
+}
+
+// fetchCommitFromProwjobJSON fetches and parses prowjob.json to extract commit hash
+func fetchCommitFromProwjobJSON(prowjobURL string) string {
+	info := fetchProwjobInfo(prowjobURL)
+	return info.CommitHash
+}
+
+// fetchProwjobInfo fetches and parses prowjob.json to extract full PR information
+func fetchProwjobInfo(prowjobURL string) ProwjobInfo {
+	var info ProwjobInfo
+	
+	// Make HTTP request with timeout
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(prowjobURL)
+	if err != nil {
+		return info // Could not fetch prowjob.json
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return info // prowjob.json not found or accessible
+	}
+	
+	// Read and parse JSON
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return info
+	}
+	
+	// Parse prowjob JSON structure with full PR information
+	var prowjob struct {
+		Spec struct {
+			Refs struct {
+				Org    string `json:"org"`
+				Repo   string `json:"repo"`
+				Pulls  []struct {
+					Number     int    `json:"number"`
+					Author     string `json:"author"`
+					SHA        string `json:"sha"`
+					Title      string `json:"title"`
+					HeadRef    string `json:"head_ref"`
+					Link       string `json:"link"`
+					CommitLink string `json:"commit_link"`
+					AuthorLink string `json:"author_link"`
+				} `json:"pulls"`
+				BaseSHA string `json:"base_sha"`
+			} `json:"refs"`
+		} `json:"spec"`
+	}
+	
+	if err := json.Unmarshal(body, &prowjob); err != nil {
+		return info
+	}
+	
+	// Extract commit SHA and PR information
+	if len(prowjob.Spec.Refs.Pulls) > 0 {
+		pull := prowjob.Spec.Refs.Pulls[0]
+		info.CommitHash = pull.SHA
+		
+		// Populate PR information
+		info.PRInfo = LLMPullRequestInfo{
+			Number:        pull.Number,
+			Author:        pull.Author,
+			AuthorLink:    pull.AuthorLink,
+			Title:         pull.Title,
+			HeadRef:       pull.HeadRef,
+			PRLink:        pull.Link,
+			CommitLink:    pull.CommitLink,
+		}
+		
+		// Determine if this is from a fork by checking if author != org
+		info.PRInfo.IsFromFork = pull.Author != prowjob.Spec.Refs.Org
+		
+		if info.PRInfo.IsFromFork {
+			// This is from a fork
+			info.PRInfo.HeadRepo = prowjob.Spec.Refs.Repo
+			info.PRInfo.HeadRepoOwner = pull.Author
+			info.PRInfo.ForkRemoteURL = fmt.Sprintf("https://github.com/%s/%s.git", pull.Author, prowjob.Spec.Refs.Repo)
+		} else {
+			// This is from the same repository
+			info.PRInfo.HeadRepo = prowjob.Spec.Refs.Repo
+			info.PRInfo.HeadRepoOwner = prowjob.Spec.Refs.Org
+			info.PRInfo.ForkRemoteURL = "" // Not needed for same repo
+		}
+	} else if prowjob.Spec.Refs.BaseSHA != "" {
+		info.CommitHash = prowjob.Spec.Refs.BaseSHA
+	}
+	
+	return info
+}
+
+// extractCommitFromBuildLog extracts commit hash from build log as fallback
+func extractCommitFromBuildLog(buildLogURL string) string {
+	// Make HTTP request with timeout
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(buildLogURL)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	
+	// Read first few KB of build log to find commit references
+	limitedReader := io.LimitReader(resp.Body, 8192) // Read first 8KB
+	body, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return ""
+	}
+	
+	logContent := string(body)
+	
+	// Look for common commit hash patterns in build logs
+	commitPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`Checking out ([a-f0-9]{40})`),                    // Git checkout
+		regexp.MustCompile(`HEAD is now at ([a-f0-9]{7,40})`),               // Git reset
+		regexp.MustCompile(`commit[:\s]+([a-f0-9]{40})`),                    // Commit reference
+		regexp.MustCompile(`PULL_PULL_SHA[=:\s]+([a-f0-9]{40})`),           // Prow environment
+		regexp.MustCompile(`PULL_BASE_SHA[=:\s]+([a-f0-9]{40})`),           // Base SHA
+	}
+	
+	for _, pattern := range commitPatterns {
+		if matches := pattern.FindStringSubmatch(logContent); len(matches) > 1 {
+			commit := matches[1]
+			// Validate it looks like a commit hash (at least 7 chars, hex)
+			if len(commit) >= 7 && regexp.MustCompile(`^[a-f0-9]+$`).MatchString(commit) {
+				return commit
+			}
+		}
+	}
+	
+	return ""
 }
 
 // analyzeTrendsFromRuns analyzes failure trends from historical job runs
