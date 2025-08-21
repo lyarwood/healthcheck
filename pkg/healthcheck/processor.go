@@ -228,6 +228,12 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 			summary.SuccessfulRuns++
 		case "FAILURE":
 			summary.FailedRuns++
+		case "ABORTED":
+			summary.AbortedRuns++
+		case "ERROR":
+			summary.ErrorRuns++
+		default:
+			summary.UnknownRuns++
 		}
 
 		// Count test failures and collect all failures
@@ -235,15 +241,40 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 			summary.TestFailures[failure.Name]++
 			summary.AllFailures = append(summary.AllFailures, failure)
 		}
+		
+		// For infrastructure failures without test failures, create placeholder entries
+		if run.Status != "SUCCESS" && len(run.Failures) == 0 {
+			placeholderName := fmt.Sprintf("Infrastructure failure (%s)", run.Status)
+			summary.TestFailures[placeholderName]++
+			placeholder := Testcase{
+				Name: placeholderName,
+				URL:  run.URL,
+			}
+			summary.AllFailures = append(summary.AllFailures, placeholder)
+		}
 	}
 
-	// Calculate failure rate
+	// Calculate failure rates
 	if summary.TotalRuns > 0 {
-		summary.FailureRate = float64(summary.FailedRuns) / float64(summary.TotalRuns) * 100
+		totalFailedRuns := summary.FailedRuns + summary.AbortedRuns + summary.ErrorRuns + summary.UnknownRuns
+		summary.FailureRate = float64(totalFailedRuns) / float64(summary.TotalRuns) * 100
 	}
 
 	// Analyze failure patterns
 	summary.TopFailures = analyzeFailurePatterns(summary.TestFailures, len(summary.AllFailures))
+
+	// Calculate infrastructure failure rate based on categorized failures
+	infrastructureFailures := 0
+	for _, failure := range summary.AllFailures {
+		category := categorizeTest(failure.Name)
+		if category == "infrastructure" || category == "infra-timeout" || category == "infra-error" {
+			infrastructureFailures++
+		}
+	}
+	
+	if len(summary.AllFailures) > 0 {
+		summary.InfrastructureFailureRate = float64(infrastructureFailures) / float64(len(summary.AllFailures)) * 100
+	}
 
 	// Calculate time range
 	summary.FirstRunTime, summary.LastRunTime = calculateTimeRange(runs)
@@ -311,6 +342,16 @@ func analyzeFailurePatterns(testFailures map[string]int, totalFailures int) []Te
 // categorizeTest attempts to categorize a test based on its name
 func categorizeTest(testName string) string {
 	testLower := strings.ToLower(testName)
+
+	// Check for infrastructure failures first
+	if strings.Contains(testLower, "infrastructure failure") {
+		if strings.Contains(testLower, "aborted") {
+			return "infra-timeout"
+		} else if strings.Contains(testLower, "error") {
+			return "infra-error"
+		}
+		return "infrastructure"
+	}
 
 	// Check for common categories based on test name patterns
 	if strings.Contains(testLower, "network") || strings.Contains(testLower, "bridge") || 

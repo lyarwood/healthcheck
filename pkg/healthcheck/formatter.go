@@ -139,14 +139,29 @@ func FormatLaneSummary(jobName string, summary *LaneSummary) {
 	fmt.Printf("  Total Runs:     %d\n", summary.TotalRuns)
 	fmt.Printf("  Successful:     %d\n", summary.SuccessfulRuns)
 	fmt.Printf("  Failed:         %d\n", summary.FailedRuns)
-	fmt.Printf("  Unknown:        %d\n", summary.TotalRuns-summary.SuccessfulRuns-summary.FailedRuns)
-	fmt.Printf("  Failure Rate:   %.1f%%\n\n", summary.FailureRate)
+	if summary.AbortedRuns > 0 {
+		fmt.Printf("  Aborted:        %d\n", summary.AbortedRuns)
+	}
+	if summary.ErrorRuns > 0 {
+		fmt.Printf("  Error:          %d\n", summary.ErrorRuns)
+	}
+	if summary.UnknownRuns > 0 {
+		fmt.Printf("  Unknown:        %d\n", summary.UnknownRuns)
+	}
+	fmt.Printf("  Failure Rate:   %.1f%%\n", summary.FailureRate)
+	fmt.Println()
 
 	// Test failure statistics
 	if len(summary.AllFailures) > 0 {
-		fmt.Printf("Test Failure Statistics:\n")
+		fmt.Printf("Failure Analysis:\n")
 		fmt.Printf("  Total Failures: %d\n", len(summary.AllFailures))
-		fmt.Printf("  Unique Tests:   %d\n\n", len(summary.TestFailures))
+		fmt.Printf("  Unique Tests:   %d\n", len(summary.TestFailures))
+		
+		// Show infrastructure failure insights
+		if summary.InfrastructureFailureRate > 0 {
+			fmt.Printf("  Infrastructure: %.1f%% of all failures\n", summary.InfrastructureFailureRate)
+		}
+		fmt.Println()
 
 		// Category breakdown
 		if len(summary.TopFailures) > 0 {
@@ -185,6 +200,15 @@ func FormatLaneSummary(jobName string, summary *LaneSummary) {
 			fmt.Printf("  🟠 Low failure rate - normal fluctuation\n")
 		} else {
 			fmt.Printf("  🟢 Very low failure rate - stable\n")
+		}
+
+		// Infrastructure vs test failure insights
+		if summary.InfrastructureFailureRate > 70 {
+			fmt.Printf("  🏗️  Most failures are infrastructure-related - check CI environment\n")
+		} else if summary.InfrastructureFailureRate > 30 {
+			fmt.Printf("  ⚠️  Mix of infrastructure and test failures\n")
+		} else if summary.InfrastructureFailureRate > 0 {
+			fmt.Printf("  🧪 Most failures are test-related\n")
 		}
 
 		if len(summary.TopFailures) > 0 {

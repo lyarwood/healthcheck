@@ -55,10 +55,14 @@ type LaneSummary struct {
 	TotalRuns     int
 	SuccessfulRuns int
 	FailedRuns    int
+	AbortedRuns   int         // Jobs aborted due to infrastructure issues
+	ErrorRuns     int         // Jobs with system errors
+	UnknownRuns   int         // Jobs with unknown status
 	TestFailures  map[string]int
 	Runs          []JobRun
 	AllFailures   []Testcase  // All test failures across all runs
 	FailureRate   float64     // Percentage of runs that failed
+	InfrastructureFailureRate float64 // Percentage of failures due to infrastructure
 	TopFailures   []TestFailurePattern // Most common failure patterns
 	FirstRunTime  string      // Timestamp of earliest run
 	LastRunTime   string      // Timestamp of latest run
