@@ -13,12 +13,13 @@ This tool provides two distinct commands that use different data sources:
 - **Performance**: Fast - processes pre-computed aggregations
 - **Use Case**: Quick overview of current CI health across all job types
 
-### **`lane`** - Live Prow Data Crawling  
-- **Data Source**: Crawls live Prow web pages and fetches individual job artifacts
-- **Coverage**: Analyzes any specific job lane in real-time
+### **`lane`** - Live Prow Data Crawling
+- **Data Source**: Crawls live Prow web pages and fetches individual job artifacts from multiple sources (presubmit, batch, periodic)
+- **Coverage**: Analyzes any specific job lane in real-time, including batch jobs
 - **Time Range**: Flexible - can go back weeks/months with automatic pagination
 - **Performance**: Slower - fetches and parses individual job data on-demand
 - **Use Case**: Deep dive analysis of specific job lanes with historical data
+- **Job Types**: Supports presubmit, batch, periodic, and postsubmit jobs with per-type failure statistics
 
 ## Installation
 
@@ -173,12 +174,16 @@ Test Run Statistics:
   Total Runs:     25
   Successful:     16
   Failed:         7
-  Unknown:        2
+  Running:        2
   Failure Rate:   28.0%
+  Job Types:
+    presubmit   : 20 (80.0%, 30.0% failure rate)
+    batch       : 5 (20.0%, 20.0% failure rate)
 
 Test Failure Statistics:
   Total Failures: 28
   Unique Tests:   25
+  Infrastructure: 42.9% of all failures
 
 Failure Categories:
   migration : 4 (14.3%)
@@ -194,6 +199,56 @@ Pattern Analysis:
   🟠 Low failure rate - normal fluctuation
   🔀 Diverse failure patterns - no clear dominant issue
 ```
+
+### Job Type Filtering
+
+The lane command now supports filtering by job type to analyze specific CI categories:
+
+```shell
+# Filter by batch jobs only
+$ healthcheck lane pull-kubevirt-e2e-k8s-1.34-sig-compute-arm64 --type batch --summary -s 7d
+Lane Summary: pull-kubevirt-e2e-k8s-1.34-sig-compute-arm64
+==========================================================
+
+Test Run Statistics:
+  Total Runs:     19
+  Successful:     16
+  Failed:         1
+  Running:        2
+  Failure Rate:   5.3%
+  Job Types:
+    batch       : 19 (100.0%, 5.3% failure rate)
+
+# Filter by presubmit jobs only
+$ healthcheck lane pull-kubevirt-e2e-k8s-1.34-sig-compute-arm64 --type presubmit --summary -s 7d
+
+# Filter by periodic or postsubmit jobs
+$ healthcheck lane periodic-kubevirt-e2e-k8s-1.32-sig-network --type periodic --summary
+```
+
+This enables comparison of failure rates between different job types and helps identify if certain types (e.g., batch vs presubmit) have different failure characteristics.
+
+### Job Type Statistics
+
+Lane summaries now include per-job-type statistics showing both distribution and failure rates:
+
+```shell
+$ healthcheck lane pull-kubevirt-e2e-k8s-1.34-sig-compute-arm64 --summary -s 7d
+...
+Test Run Statistics:
+  Total Runs:     143
+  Successful:     116
+  Failed:         6
+  Aborted:        15
+  Running:        4
+  Unknown:        2
+  Failure Rate:   16.1%
+  Job Types:
+    presubmit   : 122 (85.3%, 16.4% failure rate)
+    batch       : 19 (13.3%, 5.3% failure rate)
+```
+
+This helps identify which job types are most stable and which need attention. **Note:** Pending/running jobs are now correctly excluded from failure statistics.
 
 ---
 
@@ -389,11 +444,12 @@ $ healthcheck lane pull-kubevirt-unit-test-arm64 --since 1w --summary
 
 - `--limit, -l`: Number of recent runs to analyze (ignored when --since is used)
 - `--since, -s`: Fetch all results within time period (e.g., 24h, 2d, 1w) with automatic pagination
+- `--type, -t`: Filter jobs by type (e.g., batch, presubmit, periodic, postsubmit)
 - `--count, -c`: Count specific test failures
 - `--url, -u`: Display only failed job URLs
-- `--name, -n`: Display only failed test names  
+- `--name, -n`: Display only failed test names
 - `--failures, -f`: Print captured failure context
-- `--summary`: Display concise summary with failure patterns and statistics
+- `--summary`: Display concise summary with failure patterns and statistics (includes per-job-type failure rates)
 - `--output, -o`: Output format - "text" (default) or "json" for structured data
 
 ### Merge Command Flags (CI-Health Data)
