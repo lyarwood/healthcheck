@@ -61,6 +61,7 @@ type LaneSummary struct {
 	ErrorRuns     int         // Jobs with system errors
 	UnknownRuns   int         // Jobs with unknown status
 	JobTypeStats  map[string]int // Breakdown of runs by job type (presubmit, batch, etc.)
+	JobTypeFailureRate map[string]float64 // Failure rate per job type
 	TestFailures  map[string]int
 	Runs          []JobRun
 	AllFailures   []Testcase  // All test failures across all runs

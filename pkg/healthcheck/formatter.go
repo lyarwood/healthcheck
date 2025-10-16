@@ -155,7 +155,8 @@ func FormatLaneSummary(jobName string, summary *LaneSummary) {
 		fmt.Printf("  Job Types:\n")
 		for jobType, count := range summary.JobTypeStats {
 			percentage := float64(count) / float64(summary.TotalRuns) * 100
-			fmt.Printf("    %-12s: %d (%.1f%%)\n", jobType, count, percentage)
+			failureRate := summary.JobTypeFailureRate[jobType]
+			fmt.Printf("    %-12s: %d (%.1f%%, %.1f%% failure rate)\n", jobType, count, percentage, failureRate)
 		}
 	}
 	fmt.Println()

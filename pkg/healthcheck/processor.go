@@ -229,12 +229,16 @@ func isTestQuarantined(testName string, quarantinedTests map[string]bool) bool {
 // AnalyzeLaneRuns processes job runs and creates a summary
 func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 	summary := &LaneSummary{
-		TotalRuns:    len(runs),
-		TestFailures: make(map[string]int),
-		JobTypeStats: make(map[string]int),
-		Runs:         runs,
-		AllFailures:  []Testcase{},
+		TotalRuns:          len(runs),
+		TestFailures:       make(map[string]int),
+		JobTypeStats:       make(map[string]int),
+		JobTypeFailureRate: make(map[string]float64),
+		Runs:               runs,
+		AllFailures:        []Testcase{},
 	}
+
+	// Track failures per job type for calculating failure rates
+	jobTypeFailures := make(map[string]int)
 
 	// Analyze each job run
 	for i := range runs {
@@ -251,18 +255,30 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 			summary.JobTypeStats[run.JobType]++
 		}
 
+		// Track if this run failed
+		isFailed := false
+
 		// Count status
 		switch run.Status {
 		case "SUCCESS":
 			summary.SuccessfulRuns++
 		case "FAILURE":
 			summary.FailedRuns++
+			isFailed = true
 		case "ABORTED":
 			summary.AbortedRuns++
+			isFailed = true
 		case "ERROR":
 			summary.ErrorRuns++
+			isFailed = true
 		default:
 			summary.UnknownRuns++
+			isFailed = true
+		}
+
+		// Track failures per job type
+		if isFailed && run.JobType != "" {
+			jobTypeFailures[run.JobType]++
 		}
 
 		// Count test failures and collect all failures
@@ -287,6 +303,14 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 	if summary.TotalRuns > 0 {
 		totalFailedRuns := summary.FailedRuns + summary.AbortedRuns + summary.ErrorRuns + summary.UnknownRuns
 		summary.FailureRate = float64(totalFailedRuns) / float64(summary.TotalRuns) * 100
+	}
+
+	// Calculate failure rate per job type
+	for jobType, totalCount := range summary.JobTypeStats {
+		if totalCount > 0 {
+			failedCount := jobTypeFailures[jobType]
+			summary.JobTypeFailureRate[jobType] = float64(failedCount) / float64(totalCount) * 100
+		}
 	}
 
 	// Analyze failure patterns
