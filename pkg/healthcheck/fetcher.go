@@ -158,22 +158,24 @@ func parseQuarantinedTests(htmlContent string) map[string]bool {
 
 // FetchJobHistory fetches recent job runs from the Prow job history page with pagination support
 func FetchJobHistory(jobName string, limit int) ([]JobRun, error) {
-	// Try multiple possible locations:
-	// 1. pr-logs/directory - presubmit jobs (most common for PR jobs)
-	// 2. pr-logs/pull/batch - batch jobs (PR batch runs)
-	// 3. logs - periodic/postsubmit jobs
-	urls := []string{
-		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName),
-		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/pull/batch/%s", jobName),
-		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/logs/%s", jobName),
+	var allRuns []JobRun
+
+	// 1. Try pr-logs/directory - presubmit jobs (uses job-history API)
+	runs, err := fetchJobHistoryFromURL(fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName), limit)
+	if err == nil && len(runs) > 0 {
+		allRuns = append(allRuns, runs...)
 	}
 
-	var allRuns []JobRun
-	for _, url := range urls {
-		runs, err := fetchJobHistoryFromURL(url, limit)
-		if err == nil && len(runs) > 0 {
-			allRuns = append(allRuns, runs...)
-		}
+	// 2. Try pr-logs/pull/batch - batch jobs (direct GCS scraping, no job-history API support)
+	batchRuns, err := fetchBatchJobsFromGCS(jobName, limit)
+	if err == nil && len(batchRuns) > 0 {
+		allRuns = append(allRuns, batchRuns...)
+	}
+
+	// 3. Try logs - periodic/postsubmit jobs (uses job-history API)
+	runs, err = fetchJobHistoryFromURL(fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/logs/%s", jobName), limit)
+	if err == nil && len(runs) > 0 {
+		allRuns = append(allRuns, runs...)
 	}
 
 	// If we collected runs from multiple sources, deduplicate by ID and limit to requested count
@@ -265,6 +267,88 @@ func deduplicateAndLimitRuns(runs []JobRun, limit int) []JobRun {
 	return unique
 }
 
+// fetchBatchJobsFromGCS fetches batch jobs directly from GCS by scraping the directory listing
+func fetchBatchJobsFromGCS(jobName string, limit int) ([]JobRun, error) {
+	gcsURL := fmt.Sprintf("https://gcsweb.ci.kubevirt.io/gcs/kubevirt-prow/pr-logs/pull/batch/%s/", jobName)
+
+	resp, err := http.Get(gcsURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch batch jobs from GCS: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil // No batch jobs, not an error
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch batch jobs: status code %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read batch jobs body: %w", err)
+	}
+
+	// Parse directory listing to extract build IDs
+	// Format: <a href="/gcs/kubevirt-prow/pr-logs/pull/batch/JOB_NAME/BUILD_ID/">
+	buildIDPattern := regexp.MustCompile(fmt.Sprintf(`href="/gcs/kubevirt-prow/pr-logs/pull/batch/%s/(\d+)/"`, regexp.QuoteMeta(jobName)))
+	matches := buildIDPattern.FindAllStringSubmatch(string(body), -1)
+
+	if len(matches) == 0 {
+		return nil, nil // No builds found
+	}
+
+	var runs []JobRun
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		buildID := match[1]
+
+		// Construct the job run
+		run := JobRun{
+			ID:  buildID,
+			URL: fmt.Sprintf("https://prow.ci.kubevirt.io/view/gs/kubevirt-prow/pr-logs/pull/batch/%s/%s", jobName, buildID),
+		}
+
+		// Fetch prowjob.json to get timestamp and job type
+		prowjobURL := fmt.Sprintf("https://storage.googleapis.com/kubevirt-prow/pr-logs/pull/batch/%s/%s/prowjob.json", jobName, buildID)
+		resp, err := http.Get(prowjobURL)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				body, err := io.ReadAll(resp.Body)
+				if err == nil {
+					var prowjob map[string]interface{}
+					if json.Unmarshal(body, &prowjob) == nil {
+						// Extract job type
+						if metadata, ok := prowjob["metadata"].(map[string]interface{}); ok {
+							if labels, ok := metadata["labels"].(map[string]interface{}); ok {
+								if jobType, ok := labels["prow.k8s.io/type"].(string); ok {
+									run.JobType = jobType
+								}
+							}
+							// Extract timestamp
+							if ts, ok := metadata["creationTimestamp"].(string); ok {
+								run.Timestamp = ts
+							}
+						}
+					}
+				}
+			}
+		}
+
+		runs = append(runs, run)
+
+		if len(runs) >= limit {
+			break
+		}
+	}
+
+	return runs, nil
+}
+
 // FetchJobHistoryWithTimePeriod fetches job runs within a specific time period, automatically paginating as needed
 func FetchJobHistoryWithTimePeriod(jobName string, timePeriod time.Duration, maxLimit int) ([]JobRun, error) {
 	if timePeriod == 0 {
@@ -272,22 +356,25 @@ func FetchJobHistoryWithTimePeriod(jobName string, timePeriod time.Duration, max
 		return FetchJobHistory(jobName, maxLimit)
 	}
 
-	// Try multiple possible locations:
-	// 1. pr-logs/directory - presubmit jobs (most common for PR jobs)
-	// 2. pr-logs/pull/batch - batch jobs (PR batch runs)
-	// 3. logs - periodic/postsubmit jobs
-	urls := []string{
-		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName),
-		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/pull/batch/%s", jobName),
-		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/logs/%s", jobName),
+	var allRuns []JobRun
+
+	// 1. Try pr-logs/directory - presubmit jobs (uses job-history API)
+	runs, err := fetchJobHistoryWithTimePeriodFromURL(fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName), timePeriod, maxLimit)
+	if err == nil && len(runs) > 0 {
+		allRuns = append(allRuns, runs...)
 	}
 
-	var allRuns []JobRun
-	for _, url := range urls {
-		runs, err := fetchJobHistoryWithTimePeriodFromURL(url, timePeriod, maxLimit)
-		if err == nil && len(runs) > 0 {
-			allRuns = append(allRuns, runs...)
-		}
+	// 2. Try pr-logs/pull/batch - batch jobs (direct GCS scraping)
+	// Note: We fetch all batch jobs and filter by time period since GCS listing doesn't support time-based pagination
+	batchRuns, err := fetchBatchJobsFromGCS(jobName, maxLimit)
+	if err == nil && len(batchRuns) > 0 {
+		allRuns = append(allRuns, batchRuns...)
+	}
+
+	// 3. Try logs - periodic/postsubmit jobs (uses job-history API)
+	runs, err = fetchJobHistoryWithTimePeriodFromURL(fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/logs/%s", jobName), timePeriod, maxLimit)
+	if err == nil && len(runs) > 0 {
+		allRuns = append(allRuns, runs...)
 	}
 
 	// If we collected runs from multiple sources, deduplicate and filter by time period
