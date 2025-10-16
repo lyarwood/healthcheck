@@ -352,13 +352,16 @@ func fetchJobArtifacts(jobRun *JobRun) error {
 	if !strings.HasSuffix(artifactsURL, "/") {
 		artifactsURL += "/"
 	}
-	
-	// First, fetch the actual job status from prowjob.json
+
+	// First, fetch the actual job status and type from prowjob.json
 	prowjobURL := artifactsURL + "prowjob.json"
-	actualStatus, err := fetchProwJobStatus(prowjobURL)
-	if err == nil && actualStatus != "" {
+	prowJobInfo, err := fetchProwJobInfo(prowjobURL)
+	if err == nil && prowJobInfo != nil {
+		// Store the job type
+		jobRun.JobType = prowJobInfo.JobType
+
 		// Use the actual prowjob status
-		switch actualStatus {
+		switch prowJobInfo.Status {
 		case "success":
 			jobRun.Status = "SUCCESS"
 		case "failure":
@@ -439,8 +442,14 @@ func fetchTestSuiteFromURL(url string) (*Testsuite, error) {
 	return nil, fmt.Errorf("failed to unmarshal junit XML from %s", url)
 }
 
-// fetchProwJobStatus fetches the job status from prowjob.json
-func fetchProwJobStatus(prowjobURL string) (string, error) {
+// ProwJobInfo contains information from prowjob.json
+type ProwJobInfo struct {
+	Status  string
+	JobType string
+}
+
+// fetchProwJobInfo fetches the job status and type from prowjob.json
+func fetchProwJobInfo(prowjobURL string) (*ProwJobInfo, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -450,37 +459,61 @@ func fetchProwJobStatus(prowjobURL string) (string, error) {
 
 	resp, err := client.Get(prowjobURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch %s: %w", prowjobURL, err)
+		return nil, fmt.Errorf("failed to fetch %s: %w", prowjobURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("prowjob.json not found")
+		return nil, fmt.Errorf("prowjob.json not found")
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to fetch %s: status code %d", prowjobURL, resp.StatusCode)
+		return nil, fmt.Errorf("failed to fetch %s: status code %d", prowjobURL, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read %s body: %w", prowjobURL, err)
+		return nil, fmt.Errorf("failed to read %s body: %w", prowjobURL, err)
 	}
 
-	// Parse the prowjob.json to extract the status.state field
+	// Parse the prowjob.json to extract status.state and metadata.labels
 	var prowjob map[string]interface{}
 	if err := json.Unmarshal(body, &prowjob); err != nil {
-		return "", fmt.Errorf("failed to unmarshal prowjob.json: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal prowjob.json: %w", err)
 	}
+
+	info := &ProwJobInfo{}
 
 	// Extract status.state
 	if status, ok := prowjob["status"].(map[string]interface{}); ok {
 		if state, ok := status["state"].(string); ok {
-			return state, nil
+			info.Status = state
 		}
 	}
 
-	return "", fmt.Errorf("could not find status.state in prowjob.json")
+	// Extract metadata.labels["prow.k8s.io/type"]
+	if metadata, ok := prowjob["metadata"].(map[string]interface{}); ok {
+		if labels, ok := metadata["labels"].(map[string]interface{}); ok {
+			if jobType, ok := labels["prow.k8s.io/type"].(string); ok {
+				info.JobType = jobType
+			}
+		}
+	}
+
+	if info.Status == "" {
+		return nil, fmt.Errorf("could not find status.state in prowjob.json")
+	}
+
+	return info, nil
+}
+
+// fetchProwJobStatus fetches the job status from prowjob.json (legacy function)
+func fetchProwJobStatus(prowjobURL string) (string, error) {
+	info, err := fetchProwJobInfo(prowjobURL)
+	if err != nil {
+		return "", err
+	}
+	return info.Status, nil
 }
 
 // FetchBuildLogContext fetches relevant build log context for infrastructure failures

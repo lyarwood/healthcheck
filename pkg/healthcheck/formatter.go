@@ -149,6 +149,15 @@ func FormatLaneSummary(jobName string, summary *LaneSummary) {
 		fmt.Printf("  Unknown:        %d\n", summary.UnknownRuns)
 	}
 	fmt.Printf("  Failure Rate:   %.1f%%\n", summary.FailureRate)
+
+	// Job type breakdown
+	if len(summary.JobTypeStats) > 0 {
+		fmt.Printf("  Job Types:\n")
+		for jobType, count := range summary.JobTypeStats {
+			percentage := float64(count) / float64(summary.TotalRuns) * 100
+			fmt.Printf("    %-12s: %d (%.1f%%)\n", jobType, count, percentage)
+		}
+	}
 	fmt.Println()
 
 	// Test failure statistics
@@ -296,6 +305,15 @@ func FormatMergeSummary(result *ProcessorResult) {
 	if summary.UniqueTests > 0 {
 		avgFailures := float64(summary.TotalFailures) / float64(summary.UniqueTests)
 		fmt.Printf("  Avg per Test:       %.1f\n", avgFailures)
+	}
+
+	// Job type breakdown
+	if len(summary.JobTypeStats) > 0 {
+		fmt.Printf("  Job Types:\n")
+		for jobType, count := range summary.JobTypeStats {
+			percentage := float64(count) / float64(summary.TotalFailures) * 100
+			fmt.Printf("    %-12s: %d (%.1f%%)\n", jobType, count, percentage)
+		}
 	}
 	fmt.Println()
 

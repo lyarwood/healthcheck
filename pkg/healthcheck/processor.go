@@ -79,9 +79,28 @@ func ProcessFailures(results *Results, config ProcessorConfig) (*ProcessorResult
 	return result, nil
 }
 
+// fetchJobTypeFromURL fetches the job type from prowjob.json for a given failure URL
+func fetchJobTypeFromURL(failureURL string) string {
+	// Convert prow URL to prowjob.json URL
+	prowjobURL := strings.Replace(failureURL, "prow.ci.kubevirt.io//view/gs", "storage.googleapis.com", 1)
+	if !strings.HasSuffix(prowjobURL, "/") {
+		prowjobURL += "/"
+	}
+	prowjobURL += "prowjob.json"
+
+	// Fetch job info
+	info, err := fetchProwJobInfo(prowjobURL)
+	if err != nil {
+		// If we can't fetch job type, return empty string
+		return ""
+	}
+
+	return info.JobType
+}
+
 func processJobFailure(job Job, failureURL string, config ProcessorConfig,
 	result *ProcessorResult, quarantinedTests map[string]bool) error {
-	
+
 	// Check time filter if specified
 	if config.TimePeriod > 0 {
 		timestamp := extractTimestampFromURL(failureURL)
@@ -90,19 +109,22 @@ func processJobFailure(job Job, failureURL string, config ProcessorConfig,
 		}
 	}
 
+	// Fetch job type from prowjob.json
+	jobType := fetchJobTypeFromURL(failureURL)
+
 	testsuite, err := fetchTestSuite(failureURL)
 	if err != nil {
 		return err
 	}
 
 	if testsuite == nil {
-		return handleMissingTestsuite(job, failureURL, config, result, quarantinedTests)
+		return handleMissingTestsuite(job, failureURL, jobType, config, result, quarantinedTests)
 	}
 
-	return processTestcases(testsuite, failureURL, config, result, quarantinedTests)
+	return processTestcases(testsuite, failureURL, jobType, config, result, quarantinedTests)
 }
 
-func handleMissingTestsuite(job Job, failureURL string, config ProcessorConfig,
+func handleMissingTestsuite(job Job, failureURL string, jobType string, config ProcessorConfig,
 	result *ProcessorResult, _ map[string]bool) error {
 	if config.DisplayOnlyURLs && !config.SuppressOutput {
 		fmt.Println(failureURL)
@@ -115,7 +137,7 @@ func handleMissingTestsuite(job Job, failureURL string, config ProcessorConfig,
 	if config.GroupByLaneRun {
 		laneRunUUID := ExtractLaneRunUUID(failureURL)
 		if laneRunUUID != "" {
-			placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL}
+			placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL, JobType: jobType}
 			result.LaneRunFailures[laneRunUUID] = append(result.LaneRunFailures[laneRunUUID], placeholder)
 		}
 		return nil
@@ -124,15 +146,15 @@ func handleMissingTestsuite(job Job, failureURL string, config ProcessorConfig,
 		fmt.Printf("%s (no junit file to parse)\n", job.JobName)
 		fmt.Printf("%s\n\n", failureURL)
 	}
-	
+
 	// Always add placeholder testcase for missing junit files
-	placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL}
+	placeholder := Testcase{Name: fmt.Sprintf("%s (no junit file to parse)", job.JobName), URL: failureURL, JobType: jobType}
 	result.FailedTests[placeholder.Name] = append(result.FailedTests[placeholder.Name], placeholder)
-	
+
 	return nil
 }
 
-func processTestcases(testsuite *Testsuite, failureURL string, config ProcessorConfig,
+func processTestcases(testsuite *Testsuite, failureURL string, jobType string, config ProcessorConfig,
 	result *ProcessorResult, quarantinedTests map[string]bool) error {
 	for _, testcase := range testsuite.Testcase {
 		if testcase.Failure == nil || !config.TestRegex.MatchString(testcase.Name) {
@@ -149,6 +171,7 @@ func processTestcases(testsuite *Testsuite, failureURL string, config ProcessorC
 		}
 
 		testcase.URL = failureURL
+		testcase.JobType = jobType
 
 		// Check if test is quarantined
 		if config.CheckQuarantine && quarantinedTests != nil {
@@ -208,6 +231,7 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 	summary := &LaneSummary{
 		TotalRuns:    len(runs),
 		TestFailures: make(map[string]int),
+		JobTypeStats: make(map[string]int),
 		Runs:         runs,
 		AllFailures:  []Testcase{},
 	}
@@ -215,11 +239,16 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 	// Analyze each job run
 	for i := range runs {
 		run := &runs[i]
-		
+
 		// Fetch artifacts and analyze failures
 		if err := fetchJobArtifacts(run); err != nil {
 			// Don't fail completely if one job fails to fetch
 			continue
+		}
+
+		// Count job types
+		if run.JobType != "" {
+			summary.JobTypeStats[run.JobType]++
 		}
 
 		// Count status
@@ -417,6 +446,7 @@ type MergeSummary struct {
 	TopFailures      []TestFailurePattern   `json:"top_failures"`
 	CategoryBreakdown map[string]int        `json:"category_breakdown"`
 	JobBreakdown     map[string]int         `json:"job_breakdown"`
+	JobTypeStats     map[string]int         `json:"job_type_stats"` // Breakdown of failures by job type
 }
 
 // GenerateMergeSummary creates a summary from ProcessorResult
@@ -425,33 +455,39 @@ func GenerateMergeSummary(result *ProcessorResult) *MergeSummary {
 		UniqueTests:       len(result.FailedTests),
 		CategoryBreakdown: make(map[string]int),
 		JobBreakdown:      make(map[string]int),
+		JobTypeStats:      make(map[string]int),
 	}
-	
+
 	// Count total failures and analyze patterns
 	testFailureCounts := make(map[string]int)
-	
+
 	for testName, testcases := range result.FailedTests {
 		summary.TotalFailures += len(testcases)
 		testFailureCounts[testName] = len(testcases)
-		
+
 		// Categorize failures
 		category := categorizeTest(testName)
 		summary.CategoryBreakdown[category] += len(testcases)
-		
-		// Extract job information from URLs
+
+		// Extract job information and job type from testcases
 		for _, testcase := range testcases {
 			jobName := extractJobNameFromURL(testcase.URL)
 			if jobName != "" {
 				summary.JobBreakdown[jobName]++
 			}
+
+			// Count job types
+			if testcase.JobType != "" {
+				summary.JobTypeStats[testcase.JobType]++
+			}
 		}
 	}
-	
+
 	summary.TotalTests = summary.TotalFailures
-	
+
 	// Generate top failure patterns
 	summary.TopFailures = analyzeFailurePatterns(testFailureCounts, summary.TotalFailures)
-	
+
 	return summary
 }
 

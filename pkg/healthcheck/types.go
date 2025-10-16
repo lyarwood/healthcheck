@@ -33,6 +33,7 @@ type Testcase struct {
 	Time          string   `xml:"time,attr"`
 	Failure       *Failure `xml:"failure,omitempty"`
 	URL           string   `xml:"url,omitempty"`
+	JobType       string   `xml:"-"` // Prow job type: presubmit, batch, postsubmit, periodic
 	IsQuarantined bool     `xml:"-"`
 }
 
@@ -47,6 +48,7 @@ type JobRun struct {
 	ID        string
 	URL       string
 	Status    string
+	JobType   string // Prow job type: presubmit, batch, postsubmit, periodic
 	Timestamp string
 	Failures  []Testcase
 }
@@ -58,6 +60,7 @@ type LaneSummary struct {
 	AbortedRuns   int         // Jobs aborted due to infrastructure issues
 	ErrorRuns     int         // Jobs with system errors
 	UnknownRuns   int         // Jobs with unknown status
+	JobTypeStats  map[string]int // Breakdown of runs by job type (presubmit, batch, etc.)
 	TestFailures  map[string]int
 	Runs          []JobRun
 	AllFailures   []Testcase  // All test failures across all runs
