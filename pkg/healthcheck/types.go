@@ -59,6 +59,7 @@ type LaneSummary struct {
 	FailedRuns    int
 	AbortedRuns   int         // Jobs aborted due to infrastructure issues
 	ErrorRuns     int         // Jobs with system errors
+	PendingRuns   int         // Jobs currently running or pending
 	UnknownRuns   int         // Jobs with unknown status
 	JobTypeStats  map[string]int // Breakdown of runs by job type (presubmit, batch, etc.)
 	JobTypeFailureRate map[string]float64 // Failure rate per job type

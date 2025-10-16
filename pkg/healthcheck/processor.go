@@ -271,6 +271,9 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 		case "ERROR":
 			summary.ErrorRuns++
 			isFailed = true
+		case "PENDING":
+			summary.PendingRuns++
+			// Don't count pending runs as failures
 		default:
 			summary.UnknownRuns++
 			isFailed = true
@@ -288,7 +291,8 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 		}
 		
 		// For infrastructure failures without test failures, create placeholder entries
-		if run.Status != "SUCCESS" && len(run.Failures) == 0 {
+		// Don't create placeholders for PENDING runs (currently running)
+		if run.Status != "SUCCESS" && run.Status != "PENDING" && len(run.Failures) == 0 {
 			placeholderName := fmt.Sprintf("Infrastructure failure (%s)", run.Status)
 			summary.TestFailures[placeholderName]++
 			placeholder := Testcase{
@@ -381,6 +385,9 @@ func FilterLaneSummaryByJobType(summary *LaneSummary, jobType string) *LaneSumma
 		case "ERROR":
 			filtered.ErrorRuns++
 			isFailed = true
+		case "PENDING":
+			filtered.PendingRuns++
+			// Don't count pending runs as failures
 		default:
 			filtered.UnknownRuns++
 			isFailed = true
@@ -398,7 +405,8 @@ func FilterLaneSummaryByJobType(summary *LaneSummary, jobType string) *LaneSumma
 		}
 
 		// For infrastructure failures without test failures, create placeholder entries
-		if run.Status != "SUCCESS" && len(run.Failures) == 0 {
+		// Don't create placeholders for PENDING runs (currently running)
+		if run.Status != "SUCCESS" && run.Status != "PENDING" && len(run.Failures) == 0 {
 			placeholderName := fmt.Sprintf("Infrastructure failure (%s)", run.Status)
 			filtered.TestFailures[placeholderName]++
 			placeholder := Testcase{

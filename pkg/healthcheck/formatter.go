@@ -145,6 +145,9 @@ func FormatLaneSummary(jobName string, summary *LaneSummary) {
 	if summary.ErrorRuns > 0 {
 		fmt.Printf("  Error:          %d\n", summary.ErrorRuns)
 	}
+	if summary.PendingRuns > 0 {
+		fmt.Printf("  Running:        %d\n", summary.PendingRuns)
+	}
 	if summary.UnknownRuns > 0 {
 		fmt.Printf("  Unknown:        %d\n", summary.UnknownRuns)
 	}
