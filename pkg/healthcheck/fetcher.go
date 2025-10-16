@@ -158,10 +158,38 @@ func parseQuarantinedTests(htmlContent string) map[string]bool {
 
 // FetchJobHistory fetches recent job runs from the Prow job history page with pagination support
 func FetchJobHistory(jobName string, limit int) ([]JobRun, error) {
+	// Try multiple possible locations:
+	// 1. pr-logs/directory - presubmit jobs (most common for PR jobs)
+	// 2. pr-logs/pull/batch - batch jobs (PR batch runs)
+	// 3. logs - periodic/postsubmit jobs
+	urls := []string{
+		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName),
+		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/pull/batch/%s", jobName),
+		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/logs/%s", jobName),
+	}
+
 	var allRuns []JobRun
-	baseURL := fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName)
+	for _, url := range urls {
+		runs, err := fetchJobHistoryFromURL(url, limit)
+		if err == nil && len(runs) > 0 {
+			allRuns = append(allRuns, runs...)
+		}
+	}
+
+	// If we collected runs from multiple sources, deduplicate by ID and limit to requested count
+	if len(allRuns) > 0 {
+		allRuns = deduplicateAndLimitRuns(allRuns, limit)
+		return allRuns, nil
+	}
+
+	return nil, fmt.Errorf("no job history found in pr-logs/directory, pr-logs/pull/batch, or logs")
+}
+
+// fetchJobHistoryFromURL fetches job history from a specific base URL with pagination
+func fetchJobHistoryFromURL(baseURL string, limit int) ([]JobRun, error) {
+	var allRuns []JobRun
 	currentURL := baseURL
-	
+
 	for len(allRuns) < limit {
 		// Fetch current page
 		resp, err := http.Get(currentURL)
@@ -181,7 +209,7 @@ func FetchJobHistory(jobName string, limit int) ([]JobRun, error) {
 		}
 
 		// Parse this page's job runs
-		pageRuns, nextBuildID, err := parseJobHistoryPage(string(body), jobName)
+		pageRuns, nextBuildID, err := parseJobHistoryPage(string(body), "")
 		if err != nil {
 			return nil, err
 		}
@@ -207,6 +235,36 @@ func FetchJobHistory(jobName string, limit int) ([]JobRun, error) {
 	return allRuns, nil
 }
 
+// deduplicateAndLimitRuns removes duplicate runs by ID, sorts by timestamp (newest first), and limits to count
+func deduplicateAndLimitRuns(runs []JobRun, limit int) []JobRun {
+	seen := make(map[string]bool)
+	var unique []JobRun
+
+	for _, run := range runs {
+		if !seen[run.ID] {
+			seen[run.ID] = true
+			unique = append(unique, run)
+		}
+	}
+
+	// Sort by timestamp, newest first
+	// Note: Timestamps are in RFC3339 format which sorts correctly as strings
+	for i := 0; i < len(unique); i++ {
+		for j := i + 1; j < len(unique); j++ {
+			if unique[j].Timestamp > unique[i].Timestamp {
+				unique[i], unique[j] = unique[j], unique[i]
+			}
+		}
+	}
+
+	// Limit to requested count
+	if len(unique) > limit {
+		unique = unique[:limit]
+	}
+
+	return unique
+}
+
 // FetchJobHistoryWithTimePeriod fetches job runs within a specific time period, automatically paginating as needed
 func FetchJobHistoryWithTimePeriod(jobName string, timePeriod time.Duration, maxLimit int) ([]JobRun, error) {
 	if timePeriod == 0 {
@@ -214,11 +272,39 @@ func FetchJobHistoryWithTimePeriod(jobName string, timePeriod time.Duration, max
 		return FetchJobHistory(jobName, maxLimit)
 	}
 
+	// Try multiple possible locations:
+	// 1. pr-logs/directory - presubmit jobs (most common for PR jobs)
+	// 2. pr-logs/pull/batch - batch jobs (PR batch runs)
+	// 3. logs - periodic/postsubmit jobs
+	urls := []string{
+		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName),
+		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/pull/batch/%s", jobName),
+		fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/logs/%s", jobName),
+	}
+
 	var allRuns []JobRun
-	baseURL := fmt.Sprintf("https://prow.ci.kubevirt.io/job-history/gs/kubevirt-prow/pr-logs/directory/%s", jobName)
+	for _, url := range urls {
+		runs, err := fetchJobHistoryWithTimePeriodFromURL(url, timePeriod, maxLimit)
+		if err == nil && len(runs) > 0 {
+			allRuns = append(allRuns, runs...)
+		}
+	}
+
+	// If we collected runs from multiple sources, deduplicate and filter by time period
+	if len(allRuns) > 0 {
+		allRuns = deduplicateAndLimitRuns(allRuns, maxLimit)
+		return allRuns, nil
+	}
+
+	return nil, fmt.Errorf("no job history found in pr-logs/directory, pr-logs/pull/batch, or logs")
+}
+
+// fetchJobHistoryWithTimePeriodFromURL fetches job history within a time period from a specific base URL
+func fetchJobHistoryWithTimePeriodFromURL(baseURL string, timePeriod time.Duration, maxLimit int) ([]JobRun, error) {
+	var allRuns []JobRun
 	currentURL := baseURL
 	cutoffTime := time.Now().UTC().Add(-timePeriod)
-	
+
 	for len(allRuns) < maxLimit {
 		// Fetch current page
 		resp, err := http.Get(currentURL)
@@ -238,7 +324,7 @@ func FetchJobHistoryWithTimePeriod(jobName string, timePeriod time.Duration, max
 		}
 
 		// Parse this page's job runs
-		pageRuns, nextBuildID, err := parseJobHistoryPage(string(body), jobName)
+		pageRuns, nextBuildID, err := parseJobHistoryPage(string(body), "")
 		if err != nil {
 			return nil, err
 		}
