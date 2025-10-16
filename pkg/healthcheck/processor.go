@@ -335,6 +335,116 @@ func AnalyzeLaneRuns(runs []JobRun) (*LaneSummary, error) {
 	return summary, nil
 }
 
+// FilterLaneSummaryByJobType filters a lane summary to only include runs of a specific job type
+func FilterLaneSummaryByJobType(summary *LaneSummary, jobType string) *LaneSummary {
+	// Filter runs by job type
+	var filteredRuns []JobRun
+	for _, run := range summary.Runs {
+		if run.JobType == jobType {
+			filteredRuns = append(filteredRuns, run)
+		}
+	}
+
+	// Create new summary with filtered runs (artifacts already fetched, just recalculate stats)
+	filtered := &LaneSummary{
+		TotalRuns:          len(filteredRuns),
+		TestFailures:       make(map[string]int),
+		JobTypeStats:       make(map[string]int),
+		JobTypeFailureRate: make(map[string]float64),
+		Runs:               filteredRuns,
+		AllFailures:        []Testcase{},
+	}
+
+	// Track failures per job type for calculating failure rates
+	jobTypeFailures := make(map[string]int)
+
+	// Re-count stats from filtered runs (artifacts already fetched)
+	for _, run := range filteredRuns {
+		// Count job types
+		if run.JobType != "" {
+			filtered.JobTypeStats[run.JobType]++
+		}
+
+		// Track if this run failed
+		isFailed := false
+
+		// Count status
+		switch run.Status {
+		case "SUCCESS":
+			filtered.SuccessfulRuns++
+		case "FAILURE":
+			filtered.FailedRuns++
+			isFailed = true
+		case "ABORTED":
+			filtered.AbortedRuns++
+			isFailed = true
+		case "ERROR":
+			filtered.ErrorRuns++
+			isFailed = true
+		default:
+			filtered.UnknownRuns++
+			isFailed = true
+		}
+
+		// Track failures per job type
+		if isFailed && run.JobType != "" {
+			jobTypeFailures[run.JobType]++
+		}
+
+		// Count test failures and collect all failures
+		for _, failure := range run.Failures {
+			filtered.TestFailures[failure.Name]++
+			filtered.AllFailures = append(filtered.AllFailures, failure)
+		}
+
+		// For infrastructure failures without test failures, create placeholder entries
+		if run.Status != "SUCCESS" && len(run.Failures) == 0 {
+			placeholderName := fmt.Sprintf("Infrastructure failure (%s)", run.Status)
+			filtered.TestFailures[placeholderName]++
+			placeholder := Testcase{
+				Name: placeholderName,
+				URL:  run.URL,
+			}
+			filtered.AllFailures = append(filtered.AllFailures, placeholder)
+		}
+	}
+
+	// Calculate failure rates
+	if filtered.TotalRuns > 0 {
+		totalFailedRuns := filtered.FailedRuns + filtered.AbortedRuns + filtered.ErrorRuns + filtered.UnknownRuns
+		filtered.FailureRate = float64(totalFailedRuns) / float64(filtered.TotalRuns) * 100
+	}
+
+	// Calculate failure rate per job type
+	for jobType, totalCount := range filtered.JobTypeStats {
+		if totalCount > 0 {
+			failedCount := jobTypeFailures[jobType]
+			filtered.JobTypeFailureRate[jobType] = float64(failedCount) / float64(totalCount) * 100
+		}
+	}
+
+	// Analyze failure patterns
+	filtered.TopFailures = analyzeFailurePatterns(filtered.TestFailures, len(filtered.AllFailures))
+
+	// Calculate infrastructure failure rate
+	infrastructureFailures := 0
+	for _, failure := range filtered.AllFailures {
+		category := categorizeTest(failure.Name)
+		if category == "infrastructure" || category == "infra-timeout" || category == "infra-error" {
+			infrastructureFailures++
+		}
+	}
+
+	if len(filtered.AllFailures) > 0 {
+		filtered.InfrastructureFailureRate = float64(infrastructureFailures) / float64(len(filtered.AllFailures)) * 100
+	}
+
+	// Calculate time range
+	filtered.FirstRunTime, filtered.LastRunTime = calculateTimeRange(filteredRuns)
+
+	return filtered
+}
+
 // extractTimestampFromURL attempts to extract a timestamp from a Prow URL
 // For merge command URLs, we may need to fetch the job metadata to get the timestamp
 func extractTimestampFromURL(url string) string {

@@ -18,6 +18,7 @@ var (
 	laneSincePeriod      string
 	laneSummary          bool
 	laneOutputFormat     string
+	laneJobType          string
 )
 
 var laneCmd = &cobra.Command{
@@ -47,10 +48,15 @@ var laneCmd = &cobra.Command{
 			return fmt.Errorf("failed to fetch job history for %s: %w", jobName, err)
 		}
 
-		// Analyze each run
+		// Analyze each run (this populates JobType field)
 		summary, err := healthcheck.AnalyzeLaneRuns(runs)
 		if err != nil {
 			return fmt.Errorf("failed to analyze lane runs: %w", err)
+		}
+
+		// Filter by job type if specified (after analysis to ensure JobType is populated)
+		if laneJobType != "" {
+			summary = healthcheck.FilterLaneSummaryByJobType(summary, laneJobType)
 		}
 
 		// Configure lane display options
@@ -81,6 +87,7 @@ func init() {
 	laneCmd.Flags().StringVarP(&laneSincePeriod, "since", "s", "", "Fetch all results within time period (e.g., 24h, 2d, 1w) with automatic pagination")
 	laneCmd.Flags().BoolVar(&laneSummary, "summary", false, "Display a concise summary of test runs and failure patterns")
 	laneCmd.Flags().StringVarP(&laneOutputFormat, "output", "o", "text", "Output format: text or json")
+	laneCmd.Flags().StringVarP(&laneJobType, "type", "t", "", "Filter jobs by type (e.g., batch, presubmit, periodic, postsubmit)")
 
 	rootCmd.AddCommand(laneCmd)
 }
